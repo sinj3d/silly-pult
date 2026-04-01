@@ -4,48 +4,50 @@
  * Catapult controller for the Freenove ESP32-S3 WROOM.
  *
  * Two stepper motors:
- *   1. LAUNCH motor  – simple 360° CCW rotation to fire the
- *                       spring-loaded arm via an intermittent gear
- *   2. RELOAD motor  – rotates to load the next ball
+ *   1. LAUNCH motor  – A4988/DRV8825 driver (STEP + DIR).
+ *                       Simple 360° CCW rotation to fire the
+ *                       spring-loaded arm via an intermittent gear.
+ *   2. RELOAD motor  – 4-wire unipolar stepper (e.g. 28BYJ-48)
+ *                       driven via Stepper.h through a ULN2003 board.
  *
  * Communication:
- *   Hosts a WiFi AP (or joins an existing network) and exposes a
- *   tiny HTTP server.  The backend sends POST /launch to trigger
- *   a launch-reload cycle.
- *
- * Stepper drivers assumed: A4988 / DRV8825 style (STEP + DIR pins).
+ *   Connects to an existing WiFi network and exposes a tiny HTTP
+ *   server.  The backend sends POST /launch to trigger a
+ *   launch-reload cycle.
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
-#include "FastAccelStepper.h"
+#include <Stepper.h>
 
 // ──────────────────────────────────────────────
 // Pin Definitions  (avoid strapping pins 0,3,45,46)
 // ──────────────────────────────────────────────
-#define LAUNCH_STEP_PIN   4
-#define LAUNCH_DIR_PIN    5
+// Launch motor – A4988 / DRV8825 STEP+DIR driver
+#define LAUNCH_STEP_PIN     7
+#define LAUNCH_DIR_PIN      6
+#define LAUNCH_ENABLE_PIN   15   // optional – wire to driver EN
 
-#define RELOAD_STEP_PIN   6
-#define RELOAD_DIR_PIN    7
-
-#define LAUNCH_ENABLE_PIN 15   // optional – wire to driver EN
-#define RELOAD_ENABLE_PIN 16   // optional – wire to driver EN
+// Reload motor – 4-wire unipolar stepper (IN1-IN4 on ULN2003)
+#define RELOAD_IN1          17
+#define RELOAD_IN2          8
+#define RELOAD_IN3          9
+#define RELOAD_IN4          10
 
 // ──────────────────────────────────────────────
 // Stepper Tuning
 // ──────────────────────────────────────────────
 // Launch motor – simple 360° CCW rotation
 // For a typical 200-step/rev (1.8°) stepper:
-#define LAUNCH_STEPS_PER_REV  200    // full steps for one revolution
+#define LAUNCH_STEPS_PER_REV  250    // slightly over one revolution for extra throw
 #define LAUNCH_STEP_DELAY_US  3000   // µs between steps (controls speed)
-                                      // 3000 µs → ~167 steps/sec → ~1 rev/sec
 
-// Reload motor – slower rotation to feed next ball
-#define RELOAD_SPEED_HZ       1000   // steps / sec
-#define RELOAD_ACCEL          2000   // steps / sec²
-#define RELOAD_STEPS          400    // steps for one ball advance
+// Reload motor – 28BYJ-48 with ULN2003
+// 2048 steps = 1 full output shaft revolution (with 64:1 gear ratio)
+#define RELOAD_STEPS_PER_REV  2048
+#define RELOAD_RPM            10     // speed in RPM
+#define RELOAD_STEPS          2048   // steps to advance per reload (1 full rev)
 
 // Delay between launch and reload (ms)
 #define POST_LAUNCH_DELAY_MS  500
@@ -53,46 +55,34 @@
 // ──────────────────────────────────────────────
 // WiFi Credentials
 // ──────────────────────────────────────────────
-// Station mode – connect to an existing network
 const char* WIFI_SSID     = "YOUR_SSID";
 const char* WIFI_PASSWORD = "YOUR_PASSWORD";
 
 // ──────────────────────────────────────────────
 // Globals
 // ──────────────────────────────────────────────
-// FastAccelStepper is still used for the reload motor
-FastAccelStepperEngine engine = FastAccelStepperEngine();
-FastAccelStepper *reloadStepper = nullptr;
-
 WebServer server(80);
-
 volatile bool launchRequested = false;
+
+// Stepper.h expects pins in the order: IN1, IN3, IN2, IN4
+// (the library uses a different internal wiring sequence)
+Stepper reloadMotor(RELOAD_STEPS_PER_REV, RELOAD_IN1, RELOAD_IN3, RELOAD_IN2, RELOAD_IN4);
 
 // ──────────────────────────────────────────────
 // Stepper helpers
 // ──────────────────────────────────────────────
 void initSteppers() {
-    // --- Launch motor (manual GPIO control) ---
+    // --- Launch motor (A4988 / DRV8825) ---
     pinMode(LAUNCH_STEP_PIN, OUTPUT);
     pinMode(LAUNCH_DIR_PIN,  OUTPUT);
     pinMode(LAUNCH_ENABLE_PIN, OUTPUT);
     digitalWrite(LAUNCH_STEP_PIN, LOW);
     digitalWrite(LAUNCH_ENABLE_PIN, HIGH);  // HIGH = disabled on most drivers
-    Serial.println("[STEPPER] Launch motor initialised (simple rotation)");
+    Serial.println("[STEPPER] Launch motor initialised (STEP/DIR)");
 
-    // --- Reload motor (FastAccelStepper) ---
-    engine.init();
-    reloadStepper = engine.stepperConnectToPin(RELOAD_STEP_PIN);
-    if (reloadStepper) {
-        reloadStepper->setDirectionPin(RELOAD_DIR_PIN);
-        reloadStepper->setEnablePin(RELOAD_ENABLE_PIN);
-        reloadStepper->setAutoEnable(true);
-        reloadStepper->setSpeedInHz(RELOAD_SPEED_HZ);
-        reloadStepper->setAcceleration(RELOAD_ACCEL);
-        Serial.println("[STEPPER] Reload motor initialised");
-    } else {
-        Serial.println("[STEPPER] ERROR – could not attach reload motor");
-    }
+    // --- Reload motor (Stepper.h) ---
+    reloadMotor.setSpeed(RELOAD_RPM);
+    Serial.println("[STEPPER] Reload motor initialised (Stepper.h, pins 17-8-9-10)");
 }
 
 /**
@@ -120,6 +110,25 @@ void rotateLaunchMotor() {
 }
 
 // ──────────────────────────────────────────────
+// Motor test – spins both steppers once on boot
+// ──────────────────────────────────────────────
+void testSteppers() {
+    Serial.println("[TEST] === Stepper Test Start ===");
+
+    Serial.println("[TEST] Spinning launch motor 360° CCW...");
+    rotateLaunchMotor();
+    Serial.println("[TEST] Launch motor done.");
+
+    delay(500);
+
+    Serial.println("[TEST] Spinning reload motor one full revolution...");
+    reloadMotor.step(RELOAD_STEPS);
+    Serial.println("[TEST] Reload motor done.");
+
+    Serial.println("[TEST] === Stepper Test Complete ===");
+}
+
+// ──────────────────────────────────────────────
 // Launch → Reload sequence
 // ──────────────────────────────────────────────
 void executeLaunchCycle() {
@@ -131,13 +140,7 @@ void executeLaunchCycle() {
     delay(POST_LAUNCH_DELAY_MS);
 
     Serial.println("[RELOAD] Advancing next ball...");
-    if (reloadStepper) {
-        reloadStepper->move(RELOAD_STEPS);
-
-        while (reloadStepper->isRunning()) {
-            delay(1);
-        }
-    }
+    reloadMotor.step(RELOAD_STEPS);
 
     Serial.println("[RELOAD] Reload complete – ready for next launch");
 }
@@ -171,8 +174,7 @@ void handleLaunch() {
 }
 
 void handleStatus() {
-    bool ready = !launchRequested
-                 && reloadStepper && !reloadStepper->isRunning();
+    bool ready = !launchRequested;
 
     String json = "{\"ready\":" + String(ready ? "true" : "false") + ","
                   "\"ip\":\"" + WiFi.localIP().toString() + "\"}";
@@ -217,6 +219,7 @@ void setup() {
     Serial.println("=== Silly-Pult Firmware ===");
 
     initSteppers();
+    testSteppers();  // spin both motors once to verify wiring
     connectWiFi();
 
     // Register HTTP routes
