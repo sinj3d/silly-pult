@@ -177,6 +177,7 @@ struct ObservedNotification: Sendable {
 }
 
 struct NotificationDeduplicationKey: Hashable, Sendable {
+    var requestID: String?
     var provider: String
     var title: String
     var body: String
@@ -227,6 +228,9 @@ enum HelperLogic {
 
     static func notificationDeduplicationKey(for observed: ObservedNotification, at date: Date) -> NotificationDeduplicationKey {
         NotificationDeduplicationKey(
+            requestID: observed.metadata["requestID"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
             provider: (observed.sourceBundleID ?? observed.sourceApp)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased(),
@@ -823,6 +827,10 @@ final class NotificationLogMonitor: @unchecked Sendable {
             return nil
         }
 
+        guard let requestID = parseRequestID(from: line) else {
+            return nil
+        }
+
         guard let bundleStart = line.range(of: "bundle=")?.upperBound else {
             return nil
         }
@@ -847,8 +855,26 @@ final class NotificationLogMonitor: @unchecked Sendable {
             title: nil,
             body: nil,
             isTest: false,
-            metadata: ["bundleID": bundleID, "captureSource": "system-log"]
+            metadata: [
+                "bundleID": bundleID,
+                "captureSource": "system-log",
+                "requestID": requestID,
+            ]
         )
+    }
+
+    static func parseRequestID(from line: String) -> String? {
+        guard let requestIDStart = line.range(of: "[create, [id=")?.upperBound else {
+            return nil
+        }
+
+        let requestIDSuffix = line[requestIDStart...]
+        guard let requestIDEnd = requestIDSuffix.firstIndex(of: ",") else {
+            return nil
+        }
+
+        let requestID = String(requestIDSuffix[..<requestIDEnd]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return requestID.isEmpty ? nil : requestID
     }
 
     private static func diagnosticMessage(for line: String) -> String? {

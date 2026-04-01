@@ -86,7 +86,7 @@ import Testing
         title: "Standup soon",
         body: "Join in 5 minutes",
         isTest: false,
-        metadata: [:]
+        metadata: ["requestID": "abc-123"]
     )
     let date = Date(timeIntervalSince1970: 1_775_061_200.25)
 
@@ -105,7 +105,7 @@ import Testing
         title: "Standup soon",
         body: "Join in 5 minutes",
         isTest: false,
-        metadata: [:]
+        metadata: ["requestID": "abc-123"]
     )
     let changedContent = ObservedNotification(
         sourceBundleID: "com.tinyspeck.slackmacgap",
@@ -113,7 +113,7 @@ import Testing
         title: "Standup soon",
         body: "Join in 10 minutes",
         isTest: false,
-        metadata: [:]
+        metadata: ["requestID": "def-456"]
     )
     let date = Date(timeIntervalSince1970: 1_775_061_200.25)
 
@@ -124,4 +124,12 @@ import Testing
     #expect(original)
     #expect(differentContent)
     #expect(nextSecond)
+}
+
+@Test func systemLogCreateRequestIDIsParsed() async throws {
+    let line = "2026-04-01 15:35:41.360 Df usernotificationsd[659:bffc1d] [com.apple.usernotificationsd:NotificationsPipeline] [create, [id=EB5B-4A50, time=2026-04-01 22:35:41, bundle=com.amazon.Amazon], Time elapsed=0.005 sec]: Request: Starting"
+
+    let requestID = NotificationLogMonitor.parseRequestID(from: line)
+
+    #expect(requestID == "EB5B-4A50")
 }
