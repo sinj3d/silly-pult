@@ -448,19 +448,6 @@ export function ControlPanel() {
             </div>
           </div>
 
-          <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/70 px-3 py-2 text-xs text-slate-400">
-            <div className="font-medium text-white">Managed helper logs</div>
-            <div className="mt-2 grid max-h-36 gap-1.5 overflow-y-auto text-[11px] leading-4">
-              {overview.logs.length === 0 ? (
-                <div className="text-slate-500">No local process logs yet.</div>
-              ) : null}
-              {overview.logs.map((line, index) => (
-                <pre className="whitespace-pre-wrap text-slate-400" key={`${line}-${index}`}>
-                  {line}
-                </pre>
-              ))}
-            </div>
-          </div>
         </article>
       </section>
 
@@ -575,6 +562,31 @@ export function ControlPanel() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="grid gap-3 rounded-[1.6rem] border border-white/8 bg-slate-900/80 p-4 text-xs text-slate-400">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
+              Diagnostics
+            </div>
+            <div className="mt-1 text-sm font-medium text-white">Managed helper logs</div>
+          </div>
+          <div className="text-[11px] text-slate-500">
+            {overview.logs.length === 0 ? "No logs yet" : `${overview.logs.length} lines`}
+          </div>
+        </div>
+
+        <div className="grid max-h-32 gap-1 overflow-y-auto rounded-[1rem] border border-white/8 bg-slate-950/70 px-3 py-2 text-[11px] leading-4">
+          {overview.logs.length === 0 ? (
+            <div className="text-slate-500">No local process logs yet.</div>
+          ) : null}
+          {overview.logs.map((line, index) => (
+            <pre className="whitespace-pre-wrap text-slate-400" key={`${line}-${index}`}>
+              {line}
+            </pre>
+          ))}
         </div>
       </section>
     </main>
