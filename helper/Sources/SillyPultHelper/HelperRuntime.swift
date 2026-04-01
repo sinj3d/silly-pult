@@ -760,17 +760,20 @@ final class NotificationLogMonitor: @unchecked Sendable {
     private let predicate: String
     private let onNotification: @Sendable (ObservedNotification) async -> Void
     private let onError: @Sendable (String) async -> Void
+    private let onDiagnostic: @Sendable (String) async -> Void
     private let process = Process()
     private var readTask: Task<Void, Never>?
 
     init(
         predicate: String,
         onNotification: @escaping @Sendable (ObservedNotification) async -> Void,
-        onError: @escaping @Sendable (String) async -> Void
+        onError: @escaping @Sendable (String) async -> Void,
+        onDiagnostic: @escaping @Sendable (String) async -> Void
     ) {
         self.predicate = predicate
         self.onNotification = onNotification
         self.onError = onError
+        self.onDiagnostic = onDiagnostic
     }
 
     func start() {
@@ -795,6 +798,10 @@ final class NotificationLogMonitor: @unchecked Sendable {
         readTask = Task {
             do {
                 for try await line in output.fileHandleForReading.bytes.lines {
+                    if let diagnostic = Self.diagnosticMessage(for: line) {
+                        await onDiagnostic(diagnostic)
+                    }
+
                     guard let observed = Self.parse(line) else {
                         continue
                     }
@@ -843,6 +850,22 @@ final class NotificationLogMonitor: @unchecked Sendable {
             metadata: ["bundleID": bundleID, "captureSource": "system-log"]
         )
     }
+
+    private static func diagnosticMessage(for line: String) -> String? {
+        guard line.contains("com.apple.MobileSMS") else {
+            return nil
+        }
+
+        if line.contains("[create, [id=") {
+            return "Observed Messages create pipeline line: \(line)"
+        }
+
+        if line.contains("[delete, [id=") {
+            return "Observed Messages delete pipeline line without matching create capture: \(line)"
+        }
+
+        return "Observed Messages-related notification line: \(line)"
+    }
 }
 
 actor HelperRuntime {
@@ -876,6 +899,9 @@ actor HelperRuntime {
             },
             onError: { [weak self] message in
                 await self?.setLastError(message)
+            },
+            onDiagnostic: { [weak self] message in
+                await self?.log("NOTIFICATION", message)
             }
         )
         logMonitor?.start()
