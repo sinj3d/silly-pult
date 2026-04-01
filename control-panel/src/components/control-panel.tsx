@@ -260,8 +260,8 @@ export function ControlPanel() {
         ))}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
-        <article className="rounded-[1.8rem] border border-white/8 bg-slate-900 px-5 py-4 text-white">
+      <section className="grid items-start gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+        <article className="self-start rounded-[1.8rem] border border-white/8 bg-slate-900 px-5 py-4 text-white">
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-xs uppercase tracking-[0.3em] text-slate-400">
@@ -313,7 +313,7 @@ export function ControlPanel() {
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[1.8rem] border border-white/8 bg-slate-900 p-5 text-white">
+        <article className="grid content-start self-start gap-4 rounded-[1.8rem] border border-white/8 bg-slate-900 p-5 text-white">
           <div>
             <div className="text-xs uppercase tracking-[0.3em] text-slate-400">
               Demo Tools
