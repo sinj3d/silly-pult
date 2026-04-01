@@ -54,7 +54,7 @@ export function ControlPanel() {
     void refreshOverview();
     const timer = window.setInterval(() => {
       void refreshOverview();
-    }, 3000);
+    }, 1000);
 
     return () => window.clearInterval(timer);
   }, [refreshOverview]);
