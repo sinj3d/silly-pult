@@ -321,30 +321,99 @@ export function ControlPanel() {
             <h2 className="mt-2 text-2xl font-semibold">Test normal notification behavior</h2>
           </div>
 
-          <div className="grid gap-3">
+          <div
+            className={`grid gap-4 rounded-[1.4rem] border p-4 transition ${
+              settings.focusModeEnabled
+                ? "border-cyan-300/35 bg-cyan-400/8 shadow-[0_18px_50px_rgba(34,211,238,0.08)]"
+                : "border-white/8 bg-slate-950/70"
+            }`}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="grid gap-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="text-sm font-medium text-white">Focus mode</div>
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.2em] ${
+                      settings.focusModeEnabled
+                        ? "bg-cyan-300 text-slate-950"
+                        : "border border-white/10 bg-slate-900 text-slate-300"
+                    }`}
+                  >
+                    {settings.focusModeEnabled ? "Armed" : "Inactive"}
+                  </span>
+                </div>
+                <div className="max-w-xl text-sm text-slate-300">
+                  Switch between the default “any notification triggers”
+                  behavior and the allowlisted work-notification mode.
+                </div>
+              </div>
+
+              <label className="group inline-flex cursor-pointer items-center gap-3">
+                <span className="text-sm font-medium text-slate-200">
+                  {settings.focusModeEnabled ? "On" : "Off"}
+                </span>
+                <span className="relative inline-flex">
+                  <input
+                    checked={settings.focusModeEnabled}
+                    className="peer sr-only"
+                    onChange={(event) => {
+                      setDirty(true);
+                      setSettings((current) => ({
+                        ...current,
+                        focusModeEnabled: event.target.checked,
+                      }));
+                    }}
+                    type="checkbox"
+                  />
+                  <span className="h-8 w-14 rounded-full border border-white/10 bg-slate-800 transition peer-checked:border-cyan-200/30 peer-checked:bg-cyan-300/90 group-hover:bg-slate-700 peer-checked:group-hover:bg-cyan-200" />
+                  <span className="pointer-events-none absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-sm transition peer-checked:translate-x-6" />
+                </span>
+              </label>
+            </div>
+
+            <div className="grid gap-2 rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
+              <div>
+                Current behavior:{" "}
+                <span className="font-medium text-white">
+                  {settings.focusModeEnabled
+                    ? "Only allowlisted work notifications can trigger."
+                    : "Any detected notification can trigger."}
+                </span>
+              </div>
+              <div>
+                Chrome distraction triggers are{" "}
+                <span className="font-medium text-white">
+                  {settings.focusModeEnabled ? "active" : "disabled"}
+                </span>
+                .
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
             <button
-              className="rounded-[1.2rem] bg-cyan-300 px-4 py-3 text-left font-medium text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-[1.2rem] bg-cyan-300 px-4 py-3 text-center text-sm font-medium text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={!overview.available || actionState !== "idle"}
               onClick={() => sendTest("general-notification")}
               type="button"
             >
-              Send general notification
+              General notification
             </button>
             <button
-              className="rounded-[1.2rem] bg-emerald-300 px-4 py-3 text-left font-medium text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-[1.2rem] bg-emerald-300 px-4 py-3 text-center text-sm font-medium text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={!overview.available || actionState !== "idle"}
               onClick={() => sendTest("work-notification")}
               type="button"
             >
-              Send work notification
+              Work notification
             </button>
             <button
-              className="rounded-[1.2rem] bg-amber-300 px-4 py-3 text-left font-medium text-slate-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-[1.2rem] bg-amber-300 px-4 py-3 text-center text-sm font-medium text-slate-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={!overview.available || actionState !== "idle"}
               onClick={() => sendTest("nonwork-notification")}
               type="button"
             >
-              Send non-work notification
+              Non-work notification
             </button>
           </div>
 
@@ -379,14 +448,14 @@ export function ControlPanel() {
             </div>
           </div>
 
-          <div className="rounded-[1.4rem] border border-white/8 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
+          <div className="rounded-[1.2rem] border border-white/8 bg-slate-950/70 px-3 py-2 text-xs text-slate-400">
             <div className="font-medium text-white">Managed helper logs</div>
-            <div className="mt-2 grid max-h-56 gap-2 overflow-y-auto text-xs leading-5">
+            <div className="mt-2 grid max-h-36 gap-1.5 overflow-y-auto text-[11px] leading-4">
               {overview.logs.length === 0 ? (
                 <div className="text-slate-500">No local process logs yet.</div>
               ) : null}
               {overview.logs.map((line, index) => (
-                <pre className="whitespace-pre-wrap text-slate-300" key={`${line}-${index}`}>
+                <pre className="whitespace-pre-wrap text-slate-400" key={`${line}-${index}`}>
                   {line}
                 </pre>
               ))}
@@ -415,76 +484,6 @@ export function ControlPanel() {
 
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="grid gap-4">
-            <div
-              className={`grid gap-4 rounded-[1.4rem] border p-4 transition ${
-                settings.focusModeEnabled
-                  ? "border-cyan-300/35 bg-cyan-400/8 shadow-[0_18px_50px_rgba(34,211,238,0.08)]"
-                  : "border-white/8 bg-slate-950/70"
-              }`}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="grid gap-2">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="text-sm font-medium text-white">Focus mode</div>
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.2em] ${
-                        settings.focusModeEnabled
-                          ? "bg-cyan-300 text-slate-950"
-                          : "border border-white/10 bg-slate-900 text-slate-300"
-                      }`}
-                    >
-                      {settings.focusModeEnabled ? "Armed" : "Inactive"}
-                    </span>
-                  </div>
-                  <div className="max-w-xl text-sm text-slate-300">
-                    Turn this on to switch from the default “any notification
-                    triggers” behavior to the allowlisted work-notification
-                    behavior.
-                  </div>
-                </div>
-
-                <label className="group inline-flex cursor-pointer items-center gap-3">
-                  <span className="text-sm font-medium text-slate-200">
-                    {settings.focusModeEnabled ? "On" : "Off"}
-                  </span>
-                  <span className="relative inline-flex">
-                    <input
-                      checked={settings.focusModeEnabled}
-                      className="peer sr-only"
-                      onChange={(event) => {
-                        setDirty(true);
-                        setSettings((current) => ({
-                          ...current,
-                          focusModeEnabled: event.target.checked,
-                        }));
-                      }}
-                      type="checkbox"
-                    />
-                    <span className="h-8 w-14 rounded-full border border-white/10 bg-slate-800 transition peer-checked:border-cyan-200/30 peer-checked:bg-cyan-300/90 group-hover:bg-slate-700 peer-checked:group-hover:bg-cyan-200" />
-                    <span className="pointer-events-none absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-sm transition peer-checked:translate-x-6" />
-                  </span>
-                </label>
-              </div>
-
-              <div className="grid gap-2 rounded-[1.1rem] border border-white/8 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
-                <div>
-                  Current behavior:{" "}
-                  <span className="font-medium text-white">
-                    {settings.focusModeEnabled
-                      ? "Only allowlisted work notifications can trigger."
-                      : "Any detected notification can trigger."}
-                  </span>
-                </div>
-                <div>
-                  Chrome distraction triggers are{" "}
-                  <span className="font-medium text-white">
-                    {settings.focusModeEnabled ? "active" : "disabled"}
-                  </span>
-                  .
-                </div>
-              </div>
-            </div>
-
             <label className="grid gap-2 text-sm text-slate-300">
               Work app allowlist
               <textarea
