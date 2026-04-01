@@ -33,59 +33,54 @@ struct HelperConfiguration {
     }
 }
 
-struct FocusWindow: Codable, Identifiable, Hashable, Sendable {
-    var id: String
-    var label: String
-    var enabled: Bool
-    var daysOfWeek: [Int]
-    var startMinutes: Int
-    var endMinutes: Int
-
-    func contains(_ date: Date, calendar: Calendar = .current) -> Bool {
-        guard enabled else {
-            return false
-        }
-
-        let weekday = calendar.component(.weekday, from: date)
-        let minutes = calendar.component(.hour, from: date) * 60 + calendar.component(.minute, from: date)
-        guard daysOfWeek.contains(weekday) else {
-            return false
-        }
-
-        if startMinutes <= endMinutes {
-            return minutes >= startMinutes && minutes < endMinutes
-        }
-
-        return minutes >= startMinutes || minutes < endMinutes
-    }
-}
-
 struct Settings: Codable, Sendable {
-    var focusWindows: [FocusWindow]
+    var focusModeEnabled: Bool
     var workAppAllowlist: [String]
     var distractionDomainDenylist: [String]
     var cooldownSeconds: Int
     var distractionThresholdSeconds: Int
 
     static let `default` = Settings(
-        focusWindows: [],
+        focusModeEnabled: false,
         workAppAllowlist: ["Slack", "Mail", "Calendar", "Messages", "Teams"],
         distractionDomainDenylist: ["instagram.com", "www.instagram.com", "coolmathgames.com", "www.coolmathgames.com"],
         cooldownSeconds: 30,
         distractionThresholdSeconds: 20
     )
 
-    func needsLegacyFocusMigration() -> Bool {
-        guard focusWindows.count == 1 else {
-            return false
-        }
+    enum CodingKeys: String, CodingKey {
+        case focusModeEnabled
+        case workAppAllowlist
+        case distractionDomainDenylist
+        case cooldownSeconds
+        case distractionThresholdSeconds
+    }
 
-        let window = focusWindows[0]
-        return window.label == "Weekday Focus"
-            && window.enabled
-            && window.daysOfWeek == [2, 3, 4, 5, 6]
-            && window.startMinutes == 9 * 60
-            && window.endMinutes == 17 * 60
+    init(
+        focusModeEnabled: Bool,
+        workAppAllowlist: [String],
+        distractionDomainDenylist: [String],
+        cooldownSeconds: Int,
+        distractionThresholdSeconds: Int
+    ) {
+        self.focusModeEnabled = focusModeEnabled
+        self.workAppAllowlist = workAppAllowlist
+        self.distractionDomainDenylist = distractionDomainDenylist
+        self.cooldownSeconds = cooldownSeconds
+        self.distractionThresholdSeconds = distractionThresholdSeconds
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.focusModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .focusModeEnabled) ?? false
+        self.workAppAllowlist = try container.decodeIfPresent([String].self, forKey: .workAppAllowlist) ?? Settings.default.workAppAllowlist
+        self.distractionDomainDenylist = try container.decodeIfPresent([String].self, forKey: .distractionDomainDenylist) ?? Settings.default.distractionDomainDenylist
+        self.cooldownSeconds = try container.decodeIfPresent(Int.self, forKey: .cooldownSeconds) ?? Settings.default.cooldownSeconds
+        self.distractionThresholdSeconds = try container.decodeIfPresent(Int.self, forKey: .distractionThresholdSeconds) ?? Settings.default.distractionThresholdSeconds
+    }
+
+    func needsLegacyFocusMigration() -> Bool {
+        false
     }
 }
 
@@ -186,7 +181,7 @@ struct RuleDecision: Sendable {
 
 enum HelperLogic {
     static func isFocusActive(on date: Date, settings: Settings, calendar: Calendar = .current) -> Bool {
-        settings.focusWindows.contains { $0.contains(date, calendar: calendar) }
+        settings.focusModeEnabled
     }
 
     static func operatingMode(on date: Date, settings: Settings, calendar: Calendar = .current) -> OperatingMode {
@@ -310,7 +305,7 @@ final class SQLiteStore: @unchecked Sendable {
         if let settings = try loadSettings() {
             if settings.needsLegacyFocusMigration() {
                 try saveSettings(Settings(
-                    focusWindows: [],
+                    focusModeEnabled: false,
                     workAppAllowlist: settings.workAppAllowlist,
                     distractionDomainDenylist: settings.distractionDomainDenylist,
                     cooldownSeconds: settings.cooldownSeconds,

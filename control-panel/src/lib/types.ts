@@ -1,14 +1,5 @@
-export type FocusWindow = {
-  id: string;
-  label: string;
-  enabled: boolean;
-  daysOfWeek: number[];
-  startMinutes: number;
-  endMinutes: number;
-};
-
 export type Settings = {
-  focusWindows: FocusWindow[];
+  focusModeEnabled: boolean;
   workAppAllowlist: string[];
   distractionDomainDenylist: string[];
   cooldownSeconds: number;
@@ -71,7 +62,7 @@ export type OverviewResponse = {
 };
 
 export const defaultSettings: Settings = {
-  focusWindows: [],
+  focusModeEnabled: false,
   workAppAllowlist: ["Slack", "Mail", "Calendar", "Messages", "Teams"],
   distractionDomainDenylist: [
     "instagram.com",

@@ -4,34 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   defaultSettings,
   emptyDashboard,
-  type FocusWindow,
   type NotificationEvent,
   type OverviewResponse,
   type Settings,
 } from "@/lib/types";
-
-const weekdays = [
-  { label: "S", value: 1 },
-  { label: "M", value: 2 },
-  { label: "T", value: 3 },
-  { label: "W", value: 4 },
-  { label: "T", value: 5 },
-  { label: "F", value: 6 },
-  { label: "S", value: 7 },
-];
-
-function minutesToTime(value: number) {
-  const hours = Math.floor(value / 60)
-    .toString()
-    .padStart(2, "0");
-  const minutes = (value % 60).toString().padStart(2, "0");
-  return `${hours}:${minutes}`;
-}
-
-function timeToMinutes(value: string) {
-  const [hours = "0", minutes = "0"] = value.split(":");
-  return Number(hours) * 60 + Number(minutes);
-}
 
 function classificationTone(event: NotificationEvent) {
   switch (event.classification) {
@@ -172,42 +148,6 @@ export function ControlPanel() {
     } finally {
       setActionState("idle");
     }
-  }
-
-  function updateWindow(windowId: string, updater: (window: FocusWindow) => FocusWindow) {
-    setDirty(true);
-    setSettings((current) => ({
-      ...current,
-      focusWindows: current.focusWindows.map((window) =>
-        window.id === windowId ? updater(window) : window,
-      ),
-    }));
-  }
-
-  function addWindow() {
-    setDirty(true);
-    setSettings((current) => ({
-      ...current,
-      focusWindows: [
-        ...current.focusWindows,
-        {
-          id: crypto.randomUUID(),
-          label: "New Window",
-          enabled: true,
-          daysOfWeek: [2, 3, 4, 5, 6],
-          startMinutes: 9 * 60,
-          endMinutes: 17 * 60,
-        },
-      ],
-    }));
-  }
-
-  function removeWindow(windowId: string) {
-    setDirty(true);
-    setSettings((current) => ({
-      ...current,
-      focusWindows: current.focusWindows.filter((window) => window.id !== windowId),
-    }));
   }
 
   return (
@@ -475,6 +415,33 @@ export function ControlPanel() {
 
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="grid gap-4">
+            <div className="grid gap-4 rounded-[1.4rem] border border-white/8 bg-slate-950/70 p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium text-white">Focus mode</div>
+                  <div className="text-xs text-slate-400">
+                    Turn this on to switch from “any notification triggers” to
+                    the allowlisted work-notification behavior.
+                  </div>
+                </div>
+                <label className="flex items-center gap-3 text-sm text-slate-200">
+                  <span>{settings.focusModeEnabled ? "On" : "Off"}</span>
+                  <input
+                    checked={settings.focusModeEnabled}
+                    className="h-5 w-5 accent-cyan-300"
+                    onChange={(event) => {
+                      setDirty(true);
+                      setSettings((current) => ({
+                        ...current,
+                        focusModeEnabled: event.target.checked,
+                      }));
+                    }}
+                    type="checkbox"
+                  />
+                </label>
+              </div>
+            </div>
+
             <label className="grid gap-2 text-sm text-slate-300">
               Work app allowlist
               <textarea
@@ -549,127 +516,20 @@ export function ControlPanel() {
             </div>
 
             <div className="rounded-[1.4rem] border border-white/8 bg-slate-950/70 p-4">
-              <div className="flex items-center justify-between gap-4">
+              <div className="text-sm font-medium text-white">Focus behavior</div>
+              <div className="mt-2 grid gap-2 text-sm text-slate-300">
                 <div>
-                  <div className="text-sm font-medium text-white">Focus windows</div>
-                  <div className="text-xs text-slate-400">
-                    Base behavior is unchanged: every notification triggers unless
-                    a focus window is active. Focus mode then limits activations
-                    to allowlisted work apps while still allowing distraction
-                    triggers from denylisted Chrome domains.
-                  </div>
+                  When focus mode is off, every detected notification can trigger
+                  the catapult.
                 </div>
-                <button
-                  className="rounded-full border border-white/12 px-3 py-1 text-sm text-white transition hover:bg-white/8"
-                  onClick={addWindow}
-                  type="button"
-                >
-                  Add window
-                </button>
-              </div>
-
-              <div className="mt-4 grid gap-3">
-                {settings.focusWindows.map((window) => (
-                  <div
-                    className="grid gap-3 rounded-[1.2rem] border border-white/10 bg-slate-900 p-4"
-                    key={window.id}
-                  >
-                    <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-                      <label className="grid gap-2 text-sm text-slate-300">
-                        Label
-                        <input
-                          className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white outline-none transition focus:border-cyan-300"
-                          onChange={(event) =>
-                            updateWindow(window.id, (current) => ({
-                              ...current,
-                              label: event.target.value,
-                            }))
-                          }
-                          value={window.label}
-                        />
-                      </label>
-                      <button
-                        className="self-end rounded-full border border-rose-300/30 px-3 py-2 text-sm text-rose-200 transition hover:bg-rose-300/10"
-                        onClick={() => removeWindow(window.id)}
-                        type="button"
-                      >
-                        Remove
-                      </button>
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <label className="grid gap-2 text-sm text-slate-300">
-                        Start
-                        <input
-                          className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white outline-none transition focus:border-cyan-300"
-                          onChange={(event) =>
-                            updateWindow(window.id, (current) => ({
-                              ...current,
-                              startMinutes: timeToMinutes(event.target.value),
-                            }))
-                          }
-                          type="time"
-                          value={minutesToTime(window.startMinutes)}
-                        />
-                      </label>
-                      <label className="grid gap-2 text-sm text-slate-300">
-                        End
-                        <input
-                          className="rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-white outline-none transition focus:border-cyan-300"
-                          onChange={(event) =>
-                            updateWindow(window.id, (current) => ({
-                              ...current,
-                              endMinutes: timeToMinutes(event.target.value),
-                            }))
-                          }
-                          type="time"
-                          value={minutesToTime(window.endMinutes)}
-                        />
-                      </label>
-                      <label className="flex items-end gap-2 text-sm text-slate-300">
-                        <input
-                          checked={window.enabled}
-                          className="mt-1 h-4 w-4 accent-cyan-300"
-                          onChange={(event) =>
-                            updateWindow(window.id, (current) => ({
-                              ...current,
-                              enabled: event.target.checked,
-                            }))
-                          }
-                          type="checkbox"
-                        />
-                        Enabled
-                      </label>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {weekdays.map((day) => {
-                        const active = window.daysOfWeek.includes(day.value);
-                        return (
-                          <button
-                            className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-medium transition ${
-                              active
-                                ? "bg-cyan-300 text-slate-950"
-                                : "border border-white/10 bg-slate-950 text-slate-300 hover:bg-white/6"
-                            }`}
-                            key={`${window.id}-${day.value}`}
-                            onClick={() =>
-                              updateWindow(window.id, (current) => ({
-                                ...current,
-                                daysOfWeek: active
-                                  ? current.daysOfWeek.filter((value) => value !== day.value)
-                                  : [...current.daysOfWeek, day.value].sort((left, right) => left - right),
-                              }))
-                            }
-                            type="button"
-                          >
-                            {day.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                <div>
+                  When focus mode is on, only allowlisted work apps can trigger
+                  from notifications.
+                </div>
+                <div>
+                  Chrome distraction triggers also only apply while focus mode is
+                  on.
+                </div>
               </div>
             </div>
           </div>

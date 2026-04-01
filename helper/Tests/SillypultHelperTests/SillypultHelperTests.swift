@@ -3,65 +3,49 @@ import Testing
 @testable import SillypultHelper
 
 @Test func defaultSettingsStartWithFocusDisabled() async throws {
-    #expect(Settings.default.focusWindows.isEmpty)
+    #expect(!Settings.default.focusModeEnabled)
 }
 
-@Test func legacyFocusDefaultNeedsMigration() async throws {
+@Test func settingsDecodeWithoutFocusToggleDefaultsToOff() async throws {
+    let legacyJSON = """
+    {
+      "focusWindows": [
+        {
+          "id": "legacy-default",
+          "label": "Weekday Focus",
+          "enabled": true,
+          "daysOfWeek": [2, 3, 4, 5, 6],
+          "startMinutes": 540,
+          "endMinutes": 1020
+        }
+      ],
+      "workAppAllowlist": ["Slack"],
+      "distractionDomainDenylist": ["instagram.com"],
+      "cooldownSeconds": 30,
+      "distractionThresholdSeconds": 20
+    }
+    """
+
+    let settings = try JSONDecoder().decode(Settings.self, from: Data(legacyJSON.utf8))
+
+    #expect(!settings.focusModeEnabled)
+}
+
+@Test func focusToggleControlsMode() async throws {
     let settings = Settings(
-        focusWindows: [
-            FocusWindow(
-                id: "legacy-default",
-                label: "Weekday Focus",
-                enabled: true,
-                daysOfWeek: [2, 3, 4, 5, 6],
-                startMinutes: 9 * 60,
-                endMinutes: 17 * 60
-            ),
-        ],
+        focusModeEnabled: true,
         workAppAllowlist: ["Slack"],
         distractionDomainDenylist: ["instagram.com"],
         cooldownSeconds: 30,
         distractionThresholdSeconds: 20
     )
 
-    #expect(settings.needsLegacyFocusMigration())
-}
-
-@Test func focusWindowsRespectSchedule() async throws {
-    let settings = Settings(
-        focusWindows: [
-            FocusWindow(
-                id: "weekday-focus",
-                label: "Focus",
-                enabled: true,
-                daysOfWeek: [4],
-                startMinutes: 9 * 60,
-                endMinutes: 11 * 60
-            ),
-        ],
-        workAppAllowlist: ["Slack"],
-        distractionDomainDenylist: [],
-        cooldownSeconds: 10,
-        distractionThresholdSeconds: 15
-    )
-
-    var components = DateComponents()
-    components.year = 2026
-    components.month = 4
-    components.day = 1
-    components.hour = 10
-    components.minute = 0
-    components.timeZone = TimeZone(secondsFromGMT: 0)
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-    let date = try #require(calendar.date(from: components))
-
-    #expect(HelperLogic.isFocusActive(on: date, settings: settings, calendar: calendar))
+    #expect(HelperLogic.isFocusActive(on: Date(), settings: settings))
 }
 
 @Test func notificationsOutsideFocusAlwaysTrigger() async throws {
     let settings = Settings(
-        focusWindows: [],
+        focusModeEnabled: false,
         workAppAllowlist: ["Slack"],
         distractionDomainDenylist: [],
         cooldownSeconds: 10,
@@ -75,34 +59,15 @@ import Testing
 
 @Test func notificationsInsideFocusRequireAllowlist() async throws {
     let settings = Settings(
-        focusWindows: [
-            FocusWindow(
-                id: "always",
-                label: "Always",
-                enabled: true,
-                daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
-                startMinutes: 0,
-                endMinutes: 24 * 60 - 1
-            ),
-        ],
+        focusModeEnabled: true,
         workAppAllowlist: ["Slack"],
         distractionDomainDenylist: [],
         cooldownSeconds: 10,
         distractionThresholdSeconds: 15
     )
 
-    var components = DateComponents()
-    components.year = 2026
-    components.month = 4
-    components.day = 1
-    components.hour = 12
-    components.minute = 0
-    components.timeZone = TimeZone(secondsFromGMT: 0)
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-    let date = try #require(calendar.date(from: components))
-
-    #expect(HelperLogic.isFocusActive(on: date, settings: settings, calendar: calendar))
+    let date = Date()
+    #expect(HelperLogic.isFocusActive(on: date, settings: settings))
 
     let allowed = HelperLogic.notificationDecision(for: "Slack", bundleID: "com.tinyspeck.slackmacgap", settings: settings, at: date)
     let ignored = HelperLogic.notificationDecision(for: "Instagram", bundleID: "com.instagram.Instagram", settings: settings, at: date)

@@ -1,9 +1,9 @@
 # SillyPlut
 
 SillyPlut is a local macOS MVP where the catapult is the notification channel:
-any detected macOS notification can trigger it. Focus mode and Chrome
-distraction handling are optional add-ons layered on top of that default
-behavior.
+any detected macOS notification can trigger it. Focus mode is an optional
+toggle that switches the helper into work-only notification filtering, and
+Chrome distraction handling is layered on top of that focused state.
 
 ## Components
 
@@ -59,7 +59,7 @@ uses for focus-mode distraction events.
 - Live macOS notification capture is best effort and currently keyed off
   `usernotificationsd` create events in the system log.
 - Default behavior is `any notification triggers`.
-- Focus windows are opt-in and only matter when enabled.
+- Focus mode is a manual toggle in the control panel.
 - Test notifications emit a macOS toast and then mirror into the same helper
   rules engine, including the focus filter when active.
 - Firmware launches are sent over WiFi as `POST /launch`.
