@@ -13,12 +13,16 @@ export async function POST(request: Request) {
   }
 
   const payload = (await request.json()) as {
-    variant?: "allowed-work" | "ignored-nonwork";
+    variant?:
+      | "general-notification"
+      | "work-notification"
+      | "nonwork-notification";
   };
 
   if (
-    payload.variant !== "allowed-work" &&
-    payload.variant !== "ignored-nonwork"
+    payload.variant !== "general-notification" &&
+    payload.variant !== "work-notification" &&
+    payload.variant !== "nonwork-notification"
   ) {
     return NextResponse.json({ error: "invalid variant" }, { status: 400 });
   }

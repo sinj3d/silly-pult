@@ -46,6 +46,12 @@ function classificationTone(event: NotificationEvent) {
   }
 }
 
+function operatingModeLabel(mode: OverviewResponse["dashboard"]["operatingMode"]) {
+  return mode === "focus_filtered"
+    ? "Focus filtering active"
+    : "All notifications trigger";
+}
+
 export function ControlPanel() {
   const [overview, setOverview] = useState<OverviewResponse>({
     available: false,
@@ -78,12 +84,12 @@ export function ControlPanel() {
   }, [refreshOverview]);
 
   const eventSummary = useMemo(() => {
-    if (overview.events.length === 0) {
+    if (overview.dashboard.detectedNotifications === 0) {
       return "No events yet";
     }
 
-    return `${overview.events.length} recent events`;
-  }, [overview.events.length]);
+    return `${overview.dashboard.detectedNotifications} notifications detected`;
+  }, [overview.dashboard.detectedNotifications]);
 
   async function lifecycle(action: "start" | "stop") {
     setActionState(action);
@@ -138,7 +144,12 @@ export function ControlPanel() {
     }
   }
 
-  async function sendTest(variant: "allowed-work" | "ignored-nonwork") {
+  async function sendTest(
+    variant:
+      | "general-notification"
+      | "work-notification"
+      | "nonwork-notification",
+  ) {
     setActionState(variant);
     setError("");
 
@@ -207,13 +218,12 @@ export function ControlPanel() {
             SillyPlut Control Panel
           </p>
           <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-            Route real macOS notifications and Chrome distractions into catapult
-            events.
+            Any macOS notification can fire the catapult.
           </h1>
           <p className="max-w-2xl text-sm leading-7 text-slate-300">
-            The helper uses best-effort macOS system-log capture for live
-            notifications. Test notifications still emit a visible macOS toast,
-            then mirror into the same rules pipeline so the demo stays reliable.
+            Normal mode is simple: detect a notification, trigger the catapult.
+            Focus mode and Chrome distraction handling sit on top as optional
+            filters for work sessions.
           </p>
         </div>
         <div className="grid gap-3 rounded-[1.5rem] border border-cyan-400/20 bg-cyan-400/8 p-4 text-sm text-cyan-50">
@@ -246,8 +256,7 @@ export function ControlPanel() {
           </div>
           <div className="grid gap-2 text-xs text-cyan-100/75">
             <div>
-              Focus mode:{" "}
-              {overview.dashboard.focusModeActive ? "active now" : "inactive"}
+              Mode: {operatingModeLabel(overview.dashboard.operatingMode)}
             </div>
             <div>
               Capture: {overview.status?.captureMode ?? "best_effort_system_log"}
@@ -263,21 +272,26 @@ export function ControlPanel() {
         </div>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {[
           {
-            label: "Detected",
-            value: overview.dashboard.totalNotifications,
+            label: "Detected Notifications",
+            value: overview.dashboard.detectedNotifications,
             accent: "from-cyan-400/50 to-cyan-300/0",
           },
           {
-            label: "Focused / Allowed",
-            value: overview.dashboard.focusedNotifications,
+            label: "Activated Notifications",
+            value: overview.dashboard.activatedNotifications,
             accent: "from-emerald-400/50 to-emerald-300/0",
           },
           {
-            label: "Ignored",
+            label: "Ignored Notifications",
             value: overview.dashboard.ignoredNotifications,
+            accent: "from-orange-400/50 to-orange-300/0",
+          },
+          {
+            label: "Focus Filtered",
+            value: overview.dashboard.focusFilteredNotifications,
             accent: "from-amber-400/50 to-amber-300/0",
           },
           {
@@ -361,26 +375,55 @@ export function ControlPanel() {
             <div className="text-xs uppercase tracking-[0.3em] text-slate-400">
               Demo Tools
             </div>
-            <h2 className="mt-2 text-2xl font-semibold">Test the pipeline</h2>
+            <h2 className="mt-2 text-2xl font-semibold">Test normal notification behavior</h2>
           </div>
 
           <div className="grid gap-3">
             <button
-              className="rounded-[1.2rem] bg-emerald-300 px-4 py-3 text-left font-medium text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-[1.2rem] bg-cyan-300 px-4 py-3 text-left font-medium text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={!overview.available || actionState !== "idle"}
-              onClick={() => sendTest("allowed-work")}
+              onClick={() => sendTest("general-notification")}
               type="button"
             >
-              Send allowed work notification
+              Send general notification
+            </button>
+            <button
+              className="rounded-[1.2rem] bg-emerald-300 px-4 py-3 text-left font-medium text-slate-950 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!overview.available || actionState !== "idle"}
+              onClick={() => sendTest("work-notification")}
+              type="button"
+            >
+              Send work notification
             </button>
             <button
               className="rounded-[1.2rem] bg-amber-300 px-4 py-3 text-left font-medium text-slate-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={!overview.available || actionState !== "idle"}
-              onClick={() => sendTest("ignored-nonwork")}
+              onClick={() => sendTest("nonwork-notification")}
               type="button"
             >
-              Send ignored non-work notification
+              Send non-work notification
             </button>
+          </div>
+
+          <div className="rounded-[1.4rem] border border-white/8 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
+            <div className="font-medium text-white">Expected behavior</div>
+            <div className="mt-2 grid gap-1">
+              <div>
+                General notification: should activate in the default product flow.
+              </div>
+              <div>
+                Work notification:{" "}
+                {overview.dashboard.focusModeActive
+                  ? "should activate while focus mode is active."
+                  : "acts like any other notification until focus mode is enabled."}
+              </div>
+              <div>
+                Non-work notification:{" "}
+                {overview.dashboard.focusModeActive
+                  ? "should be recorded but ignored by the focus filter."
+                  : "also activates because focus filtering is currently off."}
+              </div>
+            </div>
           </div>
 
           <div className="rounded-[1.4rem] border border-white/8 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
@@ -412,7 +455,7 @@ export function ControlPanel() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="text-xs uppercase tracking-[0.3em] text-slate-400">
-              Rules
+              Add-on Rules
             </div>
             <h2 className="mt-2 text-2xl font-semibold">Focus and distraction configuration</h2>
           </div>
@@ -506,8 +549,10 @@ export function ControlPanel() {
                 <div>
                   <div className="text-sm font-medium text-white">Focus windows</div>
                   <div className="text-xs text-slate-400">
-                    Notifications always fire outside focus. During focus, only
-                    allowlisted work apps and denylisted distractions can trigger.
+                    Base behavior is unchanged: every notification triggers unless
+                    a focus window is active. Focus mode then limits activations
+                    to allowlisted work apps while still allowing distraction
+                    triggers from denylisted Chrome domains.
                   </div>
                 </div>
                 <button

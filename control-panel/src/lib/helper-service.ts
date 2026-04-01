@@ -73,7 +73,9 @@ export async function writeSettings(settings: Settings) {
   });
 }
 
-export async function sendTestNotification(variant: "allowed-work" | "ignored-nonwork") {
+export async function sendTestNotification(
+  variant: "general-notification" | "work-notification" | "nonwork-notification",
+) {
   return fetchHelperJson<NotificationEvent>("/api/test-notification", {
     method: "POST",
     body: JSON.stringify({ variant }),

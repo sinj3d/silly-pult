@@ -2,6 +2,31 @@ import Foundation
 import Testing
 @testable import SillypultHelper
 
+@Test func defaultSettingsStartWithFocusDisabled() async throws {
+    #expect(Settings.default.focusWindows.isEmpty)
+}
+
+@Test func legacyFocusDefaultNeedsMigration() async throws {
+    let settings = Settings(
+        focusWindows: [
+            FocusWindow(
+                id: "legacy-default",
+                label: "Weekday Focus",
+                enabled: true,
+                daysOfWeek: [2, 3, 4, 5, 6],
+                startMinutes: 9 * 60,
+                endMinutes: 17 * 60
+            ),
+        ],
+        workAppAllowlist: ["Slack"],
+        distractionDomainDenylist: ["instagram.com"],
+        cooldownSeconds: 30,
+        distractionThresholdSeconds: 20
+    )
+
+    #expect(settings.needsLegacyFocusMigration())
+}
+
 @Test func focusWindowsRespectSchedule() async throws {
     let settings = Settings(
         focusWindows: [

@@ -59,21 +59,30 @@ struct Settings: Codable, Sendable {
     var distractionThresholdSeconds: Int
 
     static let `default` = Settings(
-        focusWindows: [
-            FocusWindow(
-                id: UUID().uuidString,
-                label: "Weekday Focus",
-                enabled: true,
-                daysOfWeek: [2, 3, 4, 5, 6],
-                startMinutes: 9 * 60,
-                endMinutes: 17 * 60
-            ),
-        ],
+        focusWindows: [],
         workAppAllowlist: ["Slack", "Mail", "Calendar", "Messages", "Teams"],
         distractionDomainDenylist: ["instagram.com", "www.instagram.com", "coolmathgames.com", "www.coolmathgames.com"],
         cooldownSeconds: 30,
         distractionThresholdSeconds: 20
     )
+
+    func needsLegacyFocusMigration() -> Bool {
+        guard focusWindows.count == 1 else {
+            return false
+        }
+
+        let window = focusWindows[0]
+        return window.label == "Weekday Focus"
+            && window.enabled
+            && window.daysOfWeek == [2, 3, 4, 5, 6]
+            && window.startMinutes == 9 * 60
+            && window.endMinutes == 17 * 60
+    }
+}
+
+enum OperatingMode: String, Codable, Sendable {
+    case allNotifications = "all_notifications"
+    case focusFiltered = "focus_filtered"
 }
 
 enum EventClassification: String, Codable, Sendable {
@@ -110,12 +119,14 @@ struct NotificationEvent: Codable, Identifiable, Sendable {
 }
 
 struct DashboardSnapshot: Codable, Sendable {
-    var totalNotifications: Int
-    var focusedNotifications: Int
+    var detectedNotifications: Int
+    var activatedNotifications: Int
     var ignoredNotifications: Int
+    var focusFilteredNotifications: Int
     var distractionEvents: Int
     var distractionRate: Double
     var focusModeActive: Bool
+    var operatingMode: OperatingMode
 }
 
 struct HelperStatus: Codable, Sendable {
@@ -128,6 +139,7 @@ struct HelperStatus: Codable, Sendable {
     var databasePath: String
     var helperPid: Int32
     var captureMode: String
+    var operatingMode: OperatingMode
     var lastError: String?
 }
 
@@ -165,6 +177,10 @@ struct RuleDecision: Sendable {
 enum HelperLogic {
     static func isFocusActive(on date: Date, settings: Settings, calendar: Calendar = .current) -> Bool {
         settings.focusWindows.contains { $0.contains(date, calendar: calendar) }
+    }
+
+    static func operatingMode(on date: Date, settings: Settings, calendar: Calendar = .current) -> OperatingMode {
+        isFocusActive(on: date, settings: settings, calendar: calendar) ? .focusFiltered : .allNotifications
     }
 
     static func notificationDecision(
@@ -281,7 +297,17 @@ final class SQLiteStore: @unchecked Sendable {
         );
         """)
 
-        if try loadSettings() == nil {
+        if let settings = try loadSettings() {
+            if settings.needsLegacyFocusMigration() {
+                try saveSettings(Settings(
+                    focusWindows: [],
+                    workAppAllowlist: settings.workAppAllowlist,
+                    distractionDomainDenylist: settings.distractionDomainDenylist,
+                    cooldownSeconds: settings.cooldownSeconds,
+                    distractionThresholdSeconds: settings.distractionThresholdSeconds
+                ))
+            }
+        } else {
             try saveSettings(.default)
         }
     }
@@ -388,19 +414,22 @@ final class SQLiteStore: @unchecked Sendable {
 
     func dashboardSnapshot(focusModeActive: Bool) throws -> DashboardSnapshot {
         let events = try recentEvents(limit: 500)
-        let total = events.count
-        let focused = events.filter { $0.classification == .allowed && $0.triggerReason == .notification }.count
+        let detected = events.filter { $0.triggerReason == .notification }.count
+        let activated = events.filter { $0.triggerReason == .notification && $0.actionTaken == .activated }.count
         let ignored = events.filter { $0.classification == .ignored }.count
+        let focusFiltered = events.filter { $0.classification == .ignored && $0.triggerReason == .notification }.count
         let distractions = events.filter { $0.triggerReason == .distraction }.count
-        let distractionRate = total == 0 ? 0 : Double(distractions) / Double(total)
+        let distractionRate = detected == 0 ? 0 : Double(distractions) / Double(detected)
 
         return DashboardSnapshot(
-            totalNotifications: total,
-            focusedNotifications: focused,
+            detectedNotifications: detected,
+            activatedNotifications: activated,
             ignoredNotifications: ignored,
+            focusFilteredNotifications: focusFiltered,
             distractionEvents: distractions,
             distractionRate: distractionRate,
-            focusModeActive: focusModeActive
+            focusModeActive: focusModeActive,
+            operatingMode: focusModeActive ? .focusFiltered : .allNotifications
         )
     }
 
@@ -747,7 +776,9 @@ actor HelperRuntime {
     }
 
     func status() async -> HelperStatus {
-        HelperStatus(
+        let settings = (try? currentSettings()) ?? .default
+        let operatingMode = HelperLogic.operatingMode(on: Date(), settings: settings)
+        return HelperStatus(
             helperStartedAt: Self.formatDate(startedAt),
             notificationMonitorRunning: logMonitor?.isRunning() ?? false,
             firmwareBusy: await firmware.isBusy(),
@@ -757,6 +788,7 @@ actor HelperRuntime {
             databasePath: configuration.databasePath,
             helperPid: ProcessInfo.processInfo.processIdentifier,
             captureMode: "best_effort_system_log",
+            operatingMode: operatingMode,
             lastError: lastError
         )
     }
@@ -845,15 +877,19 @@ actor HelperRuntime {
         let body: String
 
         switch variant {
-        case "allowed-work":
+        case "general-notification":
+            sourceApp = "LinkedIn"
+            title = "General notification"
+            body = "This is the default SillyPlut behavior test."
+        case "work-notification":
             let settings = try currentSettings()
             sourceApp = settings.workAppAllowlist.first ?? "Slack"
-            title = "Allowed work notification"
-            body = "This test should activate the catapult."
-        case "ignored-nonwork":
+            title = "Work notification"
+            body = "This tests work-app behavior when focus mode is active."
+        case "nonwork-notification":
             sourceApp = "Instagram"
-            title = "Ignored non-work notification"
-            body = "This test should be recorded but ignored in focus mode."
+            title = "Non-work notification"
+            body = "This tests non-work behavior when focus mode is active."
         default:
             throw NSError(domain: "HelperRuntime", code: 400, userInfo: [NSLocalizedDescriptionKey: "Unknown test notification variant"])
         }

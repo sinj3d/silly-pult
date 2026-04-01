@@ -34,12 +34,14 @@ export type NotificationEvent = {
 };
 
 export type DashboardSnapshot = {
-  totalNotifications: number;
-  focusedNotifications: number;
+  detectedNotifications: number;
+  activatedNotifications: number;
   ignoredNotifications: number;
+  focusFilteredNotifications: number;
   distractionEvents: number;
   distractionRate: number;
   focusModeActive: boolean;
+  operatingMode: "all_notifications" | "focus_filtered";
 };
 
 export type HelperStatus = {
@@ -52,6 +54,7 @@ export type HelperStatus = {
   databasePath: string;
   helperPid: number;
   captureMode: string;
+  operatingMode: "all_notifications" | "focus_filtered";
   lastError?: string | null;
 };
 
@@ -67,16 +70,7 @@ export type OverviewResponse = {
 };
 
 export const defaultSettings: Settings = {
-  focusWindows: [
-    {
-      id: "weekday-focus",
-      label: "Weekday Focus",
-      enabled: true,
-      daysOfWeek: [2, 3, 4, 5, 6],
-      startMinutes: 9 * 60,
-      endMinutes: 17 * 60,
-    },
-  ],
+  focusWindows: [],
   workAppAllowlist: ["Slack", "Mail", "Calendar", "Messages", "Teams"],
   distractionDomainDenylist: [
     "instagram.com",
@@ -89,10 +83,12 @@ export const defaultSettings: Settings = {
 };
 
 export const emptyDashboard: DashboardSnapshot = {
-  totalNotifications: 0,
-  focusedNotifications: 0,
+  detectedNotifications: 0,
+  activatedNotifications: 0,
   ignoredNotifications: 0,
+  focusFilteredNotifications: 0,
   distractionEvents: 0,
   distractionRate: 0,
   focusModeActive: false,
+  operatingMode: "all_notifications",
 };

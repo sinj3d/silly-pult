@@ -1,7 +1,9 @@
 # SillyPlut
 
-SillyPlut is a local macOS MVP that routes Notification Center activity and
-Chrome distraction signals into a catapult trigger pipeline.
+SillyPlut is a local macOS MVP where the catapult is the notification channel:
+any detected macOS notification can trigger it. Focus mode and Chrome
+distraction handling are optional add-ons layered on top of that default
+behavior.
 
 ## Components
 
@@ -47,6 +49,8 @@ uses for focus-mode distraction events.
 
 - Live macOS notification capture is best effort and currently keyed off
   `usernotificationsd` create events in the system log.
-- Test notifications emit a macOS toast and also mirror into the same helper
-  rules pipeline so the demo remains deterministic.
+- Default behavior is `any notification triggers`.
+- Focus windows are opt-in and only matter when enabled.
+- Test notifications emit a macOS toast and then mirror into the same helper
+  rules engine, including the focus filter when active.
 - Local helper data is stored in `.sillyplut-data/`.

@@ -15,7 +15,7 @@ const monoFont = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "SillyPlut Control Panel",
-  description: "Manage the notification catapult and Chrome distraction rules.",
+  description: "Trigger the catapult for any macOS notification, with optional focus filtering.",
 };
 
 export default function RootLayout({
