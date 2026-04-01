@@ -1,4 +1,6 @@
 import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { copyFile, mkdir, stat } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -33,7 +35,44 @@ function helperWorkingDirectory() {
 }
 
 function helperDatabasePath() {
+  return path.join(
+    os.homedir(),
+    "Library",
+    "Application Support",
+    "SillyPlut",
+    "sillyplut.sqlite3",
+  );
+}
+
+function legacyHelperDatabasePath() {
   return path.resolve(process.cwd(), "../.sillyplut-data/sillyplut.sqlite3");
+}
+
+async function fileExists(targetPath: string) {
+  try {
+    await stat(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function migrateLegacyDatabaseIfNeeded() {
+  const targetPath = helperDatabasePath();
+  const legacyPath = legacyHelperDatabasePath();
+
+  await mkdir(path.dirname(targetPath), { recursive: true });
+
+  if (await fileExists(targetPath)) {
+    return;
+  }
+
+  if (!(await fileExists(legacyPath))) {
+    return;
+  }
+
+  await copyFile(legacyPath, targetPath);
+  appendLog(`migrated helper database from ${legacyPath}`);
 }
 
 export function managedHelperLogs() {
@@ -70,6 +109,8 @@ export async function startHelper() {
   if (state.process && state.exitCode == null) {
     return waitForHealthy();
   }
+
+  await migrateLegacyDatabaseIfNeeded();
 
   const child = spawn("swift", ["run", "SillypultHelper"], {
     cwd: helperWorkingDirectory(),

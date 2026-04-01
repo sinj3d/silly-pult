@@ -66,4 +66,4 @@ uses for focus-mode distraction events.
 - Completion is tracked by polling `GET /status` until `ready: true`.
 - Helper stdout now emits `[FIRMWARE]` logs when commands are sent to the ESP32,
   when HTTP responses arrive, and while readiness is being polled.
-- Local helper data is stored in `.sillyplut-data/`.
+- Local helper data is stored in `~/Library/Application Support/SillyPlut/`.
