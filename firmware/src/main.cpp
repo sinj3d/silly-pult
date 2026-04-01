@@ -9,9 +9,14 @@
  *   2. RELOAD motor  – rotates to load the next ball
  *
  * Communication:
- *   Hosts a WiFi AP (or joins an existing network) and exposes a
- *   tiny HTTP server.  The backend sends POST /launch to trigger
- *   a launch-reload cycle.
+ *   Primary control path is USB serial. The backend writes:
+ *     activate\n
+ *   Firmware responds with:
+ *     accepted
+ *     busy
+ *     complete
+ *
+ *   HTTP launch/status endpoints are still available for bench testing.
  *
  * Stepper drivers assumed: A4988 / DRV8825 style (STEP + DIR pins).
  */
@@ -67,6 +72,7 @@ FastAccelStepper *reloadStepper = nullptr;
 WebServer server(80);
 
 volatile bool launchRequested = false;
+String serialCommandBuffer = "";
 
 // ──────────────────────────────────────────────
 // Stepper helpers
@@ -140,6 +146,7 @@ void executeLaunchCycle() {
     }
 
     Serial.println("[RELOAD] Reload complete – ready for next launch");
+    Serial.println("complete");
 }
 
 // ──────────────────────────────────────────────
@@ -181,6 +188,57 @@ void handleStatus() {
 
 void handleNotFound() {
     server.send(404, "application/json", "{\"error\":\"not found\"}");
+}
+
+// ──────────────────────────────────────────────
+// Serial Command Handling
+// ──────────────────────────────────────────────
+void handleSerialCommand(String command) {
+    command.trim();
+    if (command.length() == 0) {
+        return;
+    }
+
+    if (command == "activate") {
+        if (launchRequested) {
+            Serial.println("busy");
+            Serial.println("[SERIAL] Host activate rejected because launch is already in progress");
+            return;
+        }
+
+        launchRequested = true;
+        Serial.println("accepted");
+        Serial.println("[SERIAL] Host activate accepted");
+        return;
+    }
+
+    if (command == "status") {
+        bool ready = !launchRequested
+                     && reloadStepper && !reloadStepper->isRunning();
+        Serial.println(ready ? "ready" : "busy");
+        Serial.printf("[SERIAL] Host status requested -> %s\n", ready ? "ready" : "busy");
+        return;
+    }
+
+    Serial.printf("[SERIAL] Unknown command: %s\n", command.c_str());
+}
+
+void processSerialCommands() {
+    while (Serial.available() > 0) {
+        char incoming = static_cast<char>(Serial.read());
+
+        if (incoming == '\r') {
+            continue;
+        }
+
+        if (incoming == '\n') {
+            handleSerialCommand(serialCommandBuffer);
+            serialCommandBuffer = "";
+            continue;
+        }
+
+        serialCommandBuffer += incoming;
+    }
 }
 
 // ──────────────────────────────────────────────
@@ -230,32 +288,10 @@ void setup() {
 
 void loop() {
     server.handleClient();
+    processSerialCommands();
 
     if (launchRequested) {
         executeLaunchCycle();
         launchRequested = false;
     }
-}
-// SillyPlut firmware protocol stub.
-//
-// The embedded implementation is intentionally out of scope for the MVP. The
-// host-side helper assumes the device will follow this minimal command
-// contract:
-//
-// Host -> firmware:
-//   "activate\n"
-//
-// Firmware -> host:
-//   "accepted\n"   catapult cycle started
-//   "busy\n"       another cycle is still in progress
-//   "complete\n"   current cycle finished and the device is ready again
-//
-// The macOS helper is responsible for serializing activation requests and
-// waiting for "complete" before it allows another trigger.
-//
-// This file exists as a protocol anchor so the expected firmware surface stays
-// explicit while the embedded work is deferred.
-
-int main() {
-  return 0;
 }
