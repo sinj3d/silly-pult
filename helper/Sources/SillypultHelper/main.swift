@@ -174,6 +174,13 @@ struct ObservedNotification: Sendable {
     var metadata: [String: String]
 }
 
+struct NotificationDeduplicationKey: Hashable, Sendable {
+    var provider: String
+    var title: String
+    var body: String
+    var secondBucket: Int64
+}
+
 struct RuleDecision: Sendable {
     var classification: EventClassification
     var actionRequired: Bool
@@ -214,6 +221,21 @@ enum HelperLogic {
 
     static func normalizedDomain(_ rawDomain: String) -> String {
         rawDomain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    static func notificationDeduplicationKey(for observed: ObservedNotification, at date: Date) -> NotificationDeduplicationKey {
+        NotificationDeduplicationKey(
+            provider: (observed.sourceBundleID ?? observed.sourceApp)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+            title: (observed.title ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+            body: (observed.body ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+            secondBucket: Int64(date.timeIntervalSince1970.rounded(.down))
+        )
     }
 }
 
@@ -710,6 +732,28 @@ actor BrowserTracker {
     }
 }
 
+actor NotificationDeduper {
+    private var seenKeys: [NotificationDeduplicationKey: Date] = [:]
+
+    func shouldProcess(_ observed: ObservedNotification, at date: Date) -> Bool {
+        pruneEntries(olderThan: date.addingTimeInterval(-5))
+
+        let key = HelperLogic.notificationDeduplicationKey(for: observed, at: date)
+        if seenKeys[key] != nil {
+            return false
+        }
+
+        seenKeys[key] = date
+        return true
+    }
+
+    private func pruneEntries(olderThan cutoff: Date) {
+        seenKeys = seenKeys.filter { _, seenAt in
+            seenAt >= cutoff
+        }
+    }
+}
+
 final class NotificationLogMonitor: @unchecked Sendable {
     private let predicate: String
     private let onNotification: @Sendable (ObservedNotification) async -> Void
@@ -804,6 +848,7 @@ actor HelperRuntime {
     private let store: SQLiteStore
     private let firmware: FirmwareController
     private let browserTracker = BrowserTracker()
+    private let notificationDeduper = NotificationDeduper()
     private let startedAt = Date()
     private var lastDetectedAt: Date?
     private var lastError: String?
@@ -928,20 +973,30 @@ actor HelperRuntime {
     }
 
     private func handleObservedNotification(_ observed: ObservedNotification) async {
-        lastDetectedAt = Date()
+        let now = Date()
+        lastDetectedAt = now
 
         do {
+            let shouldProcess = await notificationDeduper.shouldProcess(observed, at: now)
+            guard shouldProcess else {
+                let provider = observed.sourceBundleID ?? observed.sourceApp
+                let title = observed.title ?? "<no title>"
+                let body = observed.body ?? "<no body>"
+                log("NOTIFICATION", "Skipping duplicate notification in same second from \(provider): \(title) / \(body)")
+                return
+            }
+
             let settings = try currentSettings()
             let decision = HelperLogic.notificationDecision(
                 for: observed.sourceApp,
                 bundleID: observed.sourceBundleID,
                 settings: settings,
-                at: Date()
+                at: now
             )
             let action = await resolveAction(for: decision, settings: settings)
             let event = NotificationEvent(
                 id: UUID().uuidString,
-                receivedAt: Self.formatDate(Date()),
+                receivedAt: Self.formatDate(now),
                 sourceApp: observed.sourceApp,
                 title: observed.title,
                 body: observed.body,

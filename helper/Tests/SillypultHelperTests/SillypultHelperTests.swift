@@ -77,3 +77,51 @@ import Testing
     #expect(ignored.classification == .ignored)
     #expect(!ignored.actionRequired)
 }
+
+@Test func duplicateNotificationsFromSameProviderAndContentInSameSecondAreSuppressed() async throws {
+    let deduper = NotificationDeduper()
+    let observed = ObservedNotification(
+        sourceBundleID: "com.tinyspeck.slackmacgap",
+        sourceApp: "Slack",
+        title: "Standup soon",
+        body: "Join in 5 minutes",
+        isTest: false,
+        metadata: [:]
+    )
+    let date = Date(timeIntervalSince1970: 1_775_061_200.25)
+
+    let first = await deduper.shouldProcess(observed, at: date)
+    let second = await deduper.shouldProcess(observed, at: date.addingTimeInterval(0.4))
+
+    #expect(first)
+    #expect(!second)
+}
+
+@Test func notificationsWithDifferentContentOrSecondAreNotSuppressed() async throws {
+    let deduper = NotificationDeduper()
+    let first = ObservedNotification(
+        sourceBundleID: "com.tinyspeck.slackmacgap",
+        sourceApp: "Slack",
+        title: "Standup soon",
+        body: "Join in 5 minutes",
+        isTest: false,
+        metadata: [:]
+    )
+    let changedContent = ObservedNotification(
+        sourceBundleID: "com.tinyspeck.slackmacgap",
+        sourceApp: "Slack",
+        title: "Standup soon",
+        body: "Join in 10 minutes",
+        isTest: false,
+        metadata: [:]
+    )
+    let date = Date(timeIntervalSince1970: 1_775_061_200.25)
+
+    let original = await deduper.shouldProcess(first, at: date)
+    let differentContent = await deduper.shouldProcess(changedContent, at: date.addingTimeInterval(0.2))
+    let nextSecond = await deduper.shouldProcess(first, at: date.addingTimeInterval(1.1))
+
+    #expect(original)
+    #expect(differentContent)
+    #expect(nextSecond)
+}
