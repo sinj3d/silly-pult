@@ -1,0 +1,11 @@
+{
+  "name": "sillypult",
+  "private": true,
+  "scripts": {
+    "dev:panel": "npm run dev --prefix control-panel",
+    "dev:helper": "SILLYPULT_DB_PATH=\"$HOME/Library/Application Support/SillyPult/sillypult.sqlite3\" swift run --package-path helper SillyPultHelper",
+    "build:panel": "npm run build --prefix control-panel",
+    "lint:panel": "npm run lint --prefix control-panel",
+    "test:helper": "swift test --package-path helper"
+  }
+}

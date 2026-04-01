@@ -11,9 +11,19 @@
  *                       driven via Stepper.h through a ULN2003 board.
  *
  * Communication:
+<<<<<<< HEAD
  *   Connects to an existing WiFi network and exposes a tiny HTTP
  *   server.  The backend sends POST /launch to trigger a
  *   launch-reload cycle.
+=======
+ *   Primary control path is WiFi HTTP.
+ *   The backend sends POST /launch to trigger a launch-reload cycle and
+ *   polls GET /status until ready becomes true again.
+ *
+ *   USB serial remains available for debug logs only.
+ *
+ * Stepper drivers assumed: A4988 / DRV8825 style (STEP + DIR pins).
+>>>>>>> 65f226dfd438838dcc634cba1eb1bd40441c20bb
  */
 
 #include <Arduino.h>
