@@ -940,8 +940,8 @@ final class LocalHTTPServer: @unchecked Sendable {
         listener.start(queue: .global())
     }
 
-    private static func receiveRequest(on connection: NWConnection, completion: @escaping (HTTPRequest?) -> Void) {
-        func loop(_ buffer: Data) {
+    private static func receiveRequest(on connection: NWConnection, completion: @escaping @Sendable (HTTPRequest?) -> Void) {
+        @Sendable func loop(_ buffer: Data) {
             connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, isComplete, error in
                 if error != nil {
                     completion(nil)
@@ -1074,7 +1074,9 @@ struct SillypultHelperMain {
         do {
             try await runtime.start()
             print("Sillypult helper listening on \(configuration.port)")
-            dispatchMain()
+            while true {
+                try? await Task.sleep(for: .seconds(60))
+            }
         } catch {
             fputs("Helper startup failed: \(error.localizedDescription)\n", stderr)
             Foundation.exit(1)

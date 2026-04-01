@@ -236,3 +236,26 @@ void loop() {
         launchRequested = false;
     }
 }
+// SillyPlut firmware protocol stub.
+//
+// The embedded implementation is intentionally out of scope for the MVP. The
+// host-side helper assumes the device will follow this minimal command
+// contract:
+//
+// Host -> firmware:
+//   "activate\n"
+//
+// Firmware -> host:
+//   "accepted\n"   catapult cycle started
+//   "busy\n"       another cycle is still in progress
+//   "complete\n"   current cycle finished and the device is ready again
+//
+// The macOS helper is responsible for serializing activation requests and
+// waiting for "complete" before it allows another trigger.
+//
+// This file exists as a protocol anchor so the expected firmware surface stays
+// explicit while the embedded work is deferred.
+
+int main() {
+  return 0;
+}
