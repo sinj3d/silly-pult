@@ -10,7 +10,7 @@ Chrome distraction handling is layered on top of that focused state.
 - `control-panel/`: Next.js dashboard, settings editor, helper lifecycle UI, test tools
 - `helper/`: Swift helper that captures notifications, stores state in SQLite, evaluates rules, and drives the host-side activation flow
 - `chrome-extension/`: Chrome MV3 extension that posts active-domain updates to the helper
-- `firmware/`: protocol contract stub for the embedded catapult controller
+- `firmware/`: ESP32 catapult controller with WiFi HTTP control
 
 ## Local development
 
@@ -26,14 +26,17 @@ Run the helper directly:
 npm run dev:helper
 ```
 
-If the ESP32 is reachable over WiFi, point the helper at its fixed host and
-port before starting it:
+If the ESP32 is reachable over WiFi, the helper defaults to the firmware mDNS
+hostname. Override it only if your network cannot resolve `sillypult.local`:
 
 ```bash
-export SILLYPULT_FIRMWARE_HOST=192.168.4.1
+export SILLYPULT_FIRMWARE_HOST=sillypult.local
 export SILLYPULT_FIRMWARE_PORT=80
 export SILLYPULT_FIRMWARE_TIMEOUT_SECONDS=30
 ```
+
+Set the station-mode WiFi credentials directly in `firmware/src/main.cpp`
+before flashing the ESP32.
 
 Helper tests:
 
@@ -64,6 +67,7 @@ uses for focus-mode distraction events.
   rules engine, including the focus filter when active.
 - Firmware launches are sent over WiFi as `POST /launch`.
 - Completion is tracked by polling `GET /status` until `ready: true`.
+- Firmware advertises itself on the local network as `http://sillypult.local/`.
 - Helper stdout now emits `[FIRMWARE]` logs when commands are sent to the ESP32,
   when HTTP responses arrive, and while readiness is being polled.
 - Local helper data is stored in `~/Library/Application Support/SillyPult/`.

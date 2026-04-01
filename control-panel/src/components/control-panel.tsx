@@ -202,7 +202,7 @@ export function ControlPanel() {
               Capture: {overview.status?.captureMode ?? "best_effort_system_log"}
             </div>
             <div>
-              Firmware target: {overview.status?.firmwareTarget ?? "http://192.168.4.1:80/"}
+              Firmware target: {overview.status?.firmwareTarget ?? "http://sillypult.local:80/"}
             </div>
             <div>Chrome domain: {overview.status?.currentBrowserDomain ?? "none"}</div>
           </div>

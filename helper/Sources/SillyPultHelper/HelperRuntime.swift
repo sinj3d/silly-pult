@@ -20,7 +20,7 @@ struct HelperConfiguration {
         let databasePath = env["SILLYPULT_DB_PATH"]
             ?? env["SILLYPLUT_DB_PATH"]
             ?? "\(FileManager.default.homeDirectoryForCurrentUser.path)/Library/Application Support/SillyPult/sillypult.sqlite3"
-        let firmwareHost = env["SILLYPULT_FIRMWARE_HOST"] ?? env["SILLYPLUT_FIRMWARE_HOST"] ?? "192.168.4.1"
+        let firmwareHost = env["SILLYPULT_FIRMWARE_HOST"] ?? env["SILLYPLUT_FIRMWARE_HOST"] ?? "sillypult.local"
         let firmwarePort = UInt16(env["SILLYPULT_FIRMWARE_PORT"] ?? env["SILLYPLUT_FIRMWARE_PORT"] ?? "") ?? 80
         let firmwareReadyTimeoutSeconds = Int(env["SILLYPULT_FIRMWARE_TIMEOUT_SECONDS"] ?? env["SILLYPLUT_FIRMWARE_TIMEOUT_SECONDS"] ?? "") ?? 30
 

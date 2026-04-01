@@ -19,6 +19,7 @@
  */
 
 #include <Arduino.h>
+#include <ESPmDNS.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Stepper.h>
@@ -56,14 +57,23 @@
 // ──────────────────────────────────────────────
 // WiFi Credentials
 // ──────────────────────────────────────────────
-const char* WIFI_SSID     = "YOUR_SSID";
-const char* WIFI_PASSWORD = "YOUR_PASSWORD";
+const char* WIFI_SSID     = "PotatoSpot";
+const char* WIFI_PASSWORD = "password";
+const char* MDNS_HOSTNAME = "sillypult";
 
 // ──────────────────────────────────────────────
 // Globals
 // ──────────────────────────────────────────────
 WebServer server(80);
-volatile bool launchRequested = false;
+
+enum LaunchState : uint8_t {
+    IDLE = 0,
+    RUNNING = 1,
+};
+
+volatile LaunchState launchState = IDLE;
+TaskHandle_t launchTaskHandle = nullptr;
+bool mdnsStarted = false;
 
 // 28BYJ-48: Stepper.h pairs (pin1,pin3) and (pin2,pin4) internally,
 // so pass IN1, IN3, IN2, IN4 to match adjacent coil activation
@@ -129,25 +139,6 @@ void rotateLaunchMotor() {
 }
 
 // ──────────────────────────────────────────────
-// Motor test – spins both steppers once on boot
-// ──────────────────────────────────────────────
-void testSteppers() {
-    Serial.println("[TEST] === Stepper Test Start ===");
-
-    Serial.println("[TEST] Spinning launch motor...");
-    rotateLaunchMotor();
-    Serial.println("[TEST] Launch motor done.");
-
-    delay(500);
-
-    Serial.printf("[TEST] Spinning reload motor %d steps at %d RPM...\n", RELOAD_STEPS, RELOAD_RPM);
-    reloadStep(RELOAD_STEPS);
-    Serial.println("[TEST] Reload motor done.");
-
-    Serial.println("[TEST] === Stepper Test Complete ===");
-}
-
-// ──────────────────────────────────────────────
 // Launch → Reload sequence
 // ──────────────────────────────────────────────
 void executeLaunchCycle() {
@@ -162,6 +153,35 @@ void executeLaunchCycle() {
     reloadStep(RELOAD_STEPS);
 
     Serial.println("[RELOAD] Reload complete – ready for next launch");
+}
+
+void stopMDNS() {
+    if (!mdnsStarted) {
+        return;
+    }
+
+    MDNS.end();
+    mdnsStarted = false;
+    Serial.println("[MDNS] Stopped");
+}
+
+void startMDNS() {
+    if (WiFi.status() != WL_CONNECTED) {
+        stopMDNS();
+        return;
+    }
+
+    if (mdnsStarted) {
+        return;
+    }
+
+    if (MDNS.begin(MDNS_HOSTNAME)) {
+        MDNS.addService("http", "tcp", 80);
+        mdnsStarted = true;
+        Serial.printf("[MDNS] Registered as http://%s.local/\n", MDNS_HOSTNAME);
+    } else {
+        Serial.println("[MDNS] Registration failed");
+    }
 }
 
 // ──────────────────────────────────────────────
@@ -182,20 +202,25 @@ void handleLaunch() {
         return;
     }
 
-    if (launchRequested) {
+    if (launchState != IDLE || launchTaskHandle == nullptr) {
         server.send(429, "application/json", "{\"error\":\"launch already in progress\"}");
         return;
     }
 
-    launchRequested = true;
+    launchState = RUNNING;
+    xTaskNotifyGive(launchTaskHandle);
     server.send(200, "application/json", "{\"status\":\"launch triggered\"}");
     Serial.println("[HTTP] Launch request received");
 }
 
 void handleStatus() {
-    bool ready = !launchRequested;
+    bool ready = launchState == IDLE;
+    bool wifiConnected = WiFi.status() == WL_CONNECTED;
 
     String json = "{\"ready\":" + String(ready ? "true" : "false") + ","
+                  "\"busy\":" + String(ready ? "false" : "true") + ","
+                  "\"wifiConnected\":" + String(wifiConnected ? "true" : "false") + ","
+                  "\"hostname\":\"" + String(MDNS_HOSTNAME) + ".local\","
                   "\"ip\":\"" + WiFi.localIP().toString() + "\"}";
     server.send(200, "application/json", json);
 }
@@ -210,6 +235,7 @@ void handleNotFound() {
 void connectWiFi() {
     Serial.printf("[WIFI] Connecting to %s", WIFI_SSID);
     WiFi.mode(WIFI_STA);
+    WiFi.setHostname(MDNS_HOSTNAME);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
     int retries = 0;
@@ -222,9 +248,40 @@ void connectWiFi() {
     if (WiFi.status() == WL_CONNECTED) {
         Serial.println();
         Serial.printf("[WIFI] Connected!  IP: %s\n", WiFi.localIP().toString().c_str());
+        startMDNS();
     } else {
         Serial.println();
         Serial.println("[WIFI] Connection failed – check credentials");
+        stopMDNS();
+    }
+}
+
+void maintainConnectivity() {
+    if (WiFi.status() == WL_CONNECTED) {
+        startMDNS();
+        return;
+    }
+
+    stopMDNS();
+    static unsigned long lastReconnectAttemptMs = 0;
+    unsigned long now = millis();
+    if (now - lastReconnectAttemptMs < 5000) {
+        return;
+    }
+
+    lastReconnectAttemptMs = now;
+    Serial.println("[WIFI] Reconnecting...");
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
+
+void launchWorker(void* parameter) {
+    (void)parameter;
+
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        executeLaunchCycle();
+        launchState = IDLE;
     }
 }
 
@@ -238,7 +295,6 @@ void setup() {
     Serial.println("=== Silly-Pult Firmware ===");
 
     initSteppers();
-    testSteppers();  // spin both motors once to verify wiring
     connectWiFi();
 
     // Register HTTP routes
@@ -248,13 +304,12 @@ void setup() {
     server.onNotFound(handleNotFound);
     server.begin();
     Serial.println("[HTTP] Server started on port 80");
+
+    xTaskCreatePinnedToCore(launchWorker, "launchWorker", 4096, nullptr, 1, &launchTaskHandle, 1);
 }
 
 void loop() {
     server.handleClient();
-
-    if (launchRequested) {
-        executeLaunchCycle();
-        launchRequested = false;
-    }
+    maintainConnectivity();
+    delay(2);
 }
