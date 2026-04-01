@@ -627,9 +627,17 @@ actor BrowserTracker {
         var lastTriggeredAt: Date?
     }
 
+    struct DistractionCheck: Sendable {
+        var state: State
+        var elapsedSeconds: Double
+        var thresholdSeconds: Double
+        var cooldownRemainingSeconds: Double?
+        var readyToTrigger: Bool
+    }
+
     private var state: State?
 
-    func update(_ payload: BrowserActivityPayload) {
+    func update(_ payload: BrowserActivityPayload) -> State {
         let parsedDate = HelperRuntime.parseDate(payload.observedAt) ?? Date()
         let normalizedDomain = HelperLogic.normalizedDomain(payload.domain)
 
@@ -638,10 +646,10 @@ actor BrowserTracker {
             existing.title = payload.title
             existing.observedAt = parsedDate
             state = existing
-            return
+            return existing
         }
 
-        state = State(
+        let next = State(
             domain: normalizedDomain,
             url: payload.url,
             title: payload.title,
@@ -649,13 +657,15 @@ actor BrowserTracker {
             firstObservedAt: parsedDate,
             lastTriggeredAt: nil
         )
+        state = next
+        return next
     }
 
     func currentDomain() -> String? {
         state?.domain
     }
 
-    func shouldTriggerDistraction(settings: Settings, now: Date = Date()) -> State? {
+    func distractionCheck(settings: Settings, now: Date = Date()) -> DistractionCheck? {
         guard let state else {
             return nil
         }
@@ -666,16 +676,28 @@ actor BrowserTracker {
         }
 
         let elapsed = now.timeIntervalSince(state.firstObservedAt)
-        guard elapsed >= Double(settings.distractionThresholdSeconds) else {
-            return nil
+        let threshold = Double(settings.distractionThresholdSeconds)
+
+        if let lastTriggeredAt = state.lastTriggeredAt {
+            let cooldownRemaining = Double(settings.cooldownSeconds) - now.timeIntervalSince(lastTriggeredAt)
+            if cooldownRemaining > 0 {
+                return DistractionCheck(
+                    state: state,
+                    elapsedSeconds: elapsed,
+                    thresholdSeconds: threshold,
+                    cooldownRemainingSeconds: cooldownRemaining,
+                    readyToTrigger: false
+                )
+            }
         }
 
-        if let lastTriggeredAt = state.lastTriggeredAt,
-           now.timeIntervalSince(lastTriggeredAt) < Double(settings.cooldownSeconds) {
-            return nil
-        }
-
-        return state
+        return DistractionCheck(
+            state: state,
+            elapsedSeconds: elapsed,
+            thresholdSeconds: threshold,
+            cooldownRemainingSeconds: nil,
+            readyToTrigger: elapsed >= threshold
+        )
     }
 
     func markTriggered(at date: Date) {
@@ -859,7 +881,8 @@ actor HelperRuntime {
         case (.POST, "/api/browser-activity"):
             do {
                 let payload = try JSONDecoder.helperDecoder.decode(BrowserActivityPayload.self, from: request.body)
-                await browserTracker.update(payload)
+                let state = await browserTracker.update(payload)
+                log("DISTRACTION", "Chrome active domain updated: \(state.domain) (\(state.title))")
                 return .empty(statusCode: 202)
             } catch {
                 return .error("Invalid browser activity payload", statusCode: 400)
@@ -900,6 +923,10 @@ actor HelperRuntime {
         try store.loadSettings() ?? .default
     }
 
+    private func log(_ scope: String, _ message: String) {
+        print("[\(scope)] \(message)")
+    }
+
     private func handleObservedNotification(_ observed: ObservedNotification) async {
         lastDetectedAt = Date()
 
@@ -937,9 +964,30 @@ actor HelperRuntime {
                 return
             }
 
-            guard let state = await browserTracker.shouldTriggerDistraction(settings: settings) else {
+            guard let check = await browserTracker.distractionCheck(settings: settings) else {
                 return
             }
+
+            if let cooldownRemaining = check.cooldownRemainingSeconds {
+                log(
+                    "DISTRACTION",
+                    "Blocked domain \(check.state.domain) still in cooldown for \(String(format: "%.1f", cooldownRemaining))s."
+                )
+                return
+            }
+
+            if !check.readyToTrigger {
+                log(
+                    "DISTRACTION",
+                    "Blocked domain \(check.state.domain) observed for \(String(format: "%.1f", check.elapsedSeconds))s / \(Int(check.thresholdSeconds))s threshold."
+                )
+                return
+            }
+
+            log(
+                "DISTRACTION",
+                "Triggering catapult for blocked domain \(check.state.domain) after \(String(format: "%.1f", check.elapsedSeconds))s."
+            )
 
             let action = await firmware.activate(cooldownSeconds: settings.cooldownSeconds)
             await browserTracker.markTriggered(at: Date())
@@ -947,16 +995,16 @@ actor HelperRuntime {
             let event = NotificationEvent(
                 id: UUID().uuidString,
                 receivedAt: Self.formatDate(Date()),
-                sourceApp: "Chrome: \(state.domain)",
+                sourceApp: "Chrome: \(check.state.domain)",
                 title: "Distraction detected",
-                body: state.title,
+                body: check.state.title,
                 isTest: false,
                 classification: .distraction,
                 triggerReason: .distraction,
                 actionTaken: action,
                 metadata: [
-                    "domain": state.domain,
-                    "url": state.url,
+                    "domain": check.state.domain,
+                    "url": check.state.url,
                     "captureSource": "chrome-extension",
                 ]
             )
