@@ -10,17 +10,16 @@ struct HelperConfiguration {
     let port: UInt16
     let databasePath: String
     let logPredicate: String
-    let firmwareHost: String
+    let firmwareHost: String?
     let firmwarePort: UInt16
     let firmwareReadyTimeoutSeconds: Int
 
-    static func fromEnvironment() -> HelperConfiguration {
-        let env = ProcessInfo.processInfo.environment
+    static func fromEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment) -> HelperConfiguration {
         let port = UInt16(env["SILLYPULT_HELPER_PORT"] ?? env["SILLYPLUT_HELPER_PORT"] ?? "") ?? 42424
         let databasePath = env["SILLYPULT_DB_PATH"]
             ?? env["SILLYPLUT_DB_PATH"]
             ?? "\(FileManager.default.homeDirectoryForCurrentUser.path)/Library/Application Support/SillyPult/sillypult.sqlite3"
-        let firmwareHost = env["SILLYPULT_FIRMWARE_HOST"] ?? env["SILLYPLUT_FIRMWARE_HOST"] ?? "192.168.4.1"
+        let firmwareHost = normalizedFirmwareHost(from: env)
         let firmwarePort = UInt16(env["SILLYPULT_FIRMWARE_PORT"] ?? env["SILLYPLUT_FIRMWARE_PORT"] ?? "") ?? 80
         let firmwareReadyTimeoutSeconds = Int(env["SILLYPULT_FIRMWARE_TIMEOUT_SECONDS"] ?? env["SILLYPLUT_FIRMWARE_TIMEOUT_SECONDS"] ?? "") ?? 30
 
@@ -32,6 +31,15 @@ struct HelperConfiguration {
             firmwarePort: firmwarePort,
             firmwareReadyTimeoutSeconds: firmwareReadyTimeoutSeconds
         )
+    }
+
+    private static func normalizedFirmwareHost(from env: [String: String]) -> String? {
+        guard let rawHost = env["SILLYPULT_FIRMWARE_HOST"] ?? env["SILLYPLUT_FIRMWARE_HOST"] else {
+            return nil
+        }
+
+        let host = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        return host.isEmpty ? nil : host
     }
 }
 
@@ -534,37 +542,76 @@ final class SQLiteStore: @unchecked Sendable {
 }
 
 actor FirmwareController {
+    typealias RequestExecutor = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
+    private enum ProtocolError: LocalizedError {
+        case invalidStatusPayload(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidStatusPayload(let body):
+                return "Firmware /status response did not include a boolean ready flag. Body: \(body)"
+            }
+        }
+    }
+
+    private let targetURL: URL?
     private let launchURL: URL
     private let statusURL: URL
     private let readyTimeoutSeconds: Int
+    private let pollIntervalMilliseconds: UInt64
+    private let requestExecutor: RequestExecutor
     private var busy = false
     private var lastActivationAt: Date?
     private var lastResult: ActionTaken?
+    private var lastErrorMessage: String?
 
-    init(host: String, port: UInt16, readyTimeoutSeconds: Int) {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedHost.isEmpty,
-              let launchURL = URL(string: "http://\(normalizedHost):\(port)/launch"),
-              let statusURL = URL(string: "http://\(normalizedHost):\(port)/status") else {
-            fatalError("Invalid firmware host/port configuration")
+    init(
+        host: String?,
+        port: UInt16,
+        readyTimeoutSeconds: Int,
+        pollIntervalMilliseconds: UInt64 = 500,
+        requestExecutor: @escaping RequestExecutor = { request in
+            try await URLSession.shared.data(for: request)
+        }
+    ) {
+        let normalizedHost = host?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let targetURL: URL?
+        if let normalizedHost, !normalizedHost.isEmpty {
+            targetURL = URL(string: "http://\(normalizedHost):\(port)")
+        } else {
+            targetURL = nil
         }
 
-        self.launchURL = launchURL
-        self.statusURL = statusURL
+        self.targetURL = targetURL
+        self.launchURL = targetURL?.appendingPathComponent("launch") ?? URL(string: "http://127.0.0.1/launch")!
+        self.statusURL = targetURL?.appendingPathComponent("status") ?? URL(string: "http://127.0.0.1/status")!
         self.readyTimeoutSeconds = readyTimeoutSeconds
+        self.pollIntervalMilliseconds = pollIntervalMilliseconds
+        self.requestExecutor = requestExecutor
     }
 
     func activate(cooldownSeconds: Int) async -> ActionTaken {
         if busy {
             log("Skipping firmware command because a launch is already in progress.")
             lastResult = .suppressedBusy
+            lastErrorMessage = nil
             return .suppressedBusy
         }
 
         if let lastActivationAt, Date().timeIntervalSince(lastActivationAt) < Double(cooldownSeconds) {
             log("Skipping firmware command because cooldown is still active.")
             lastResult = .suppressedCooldown
+            lastErrorMessage = nil
             return .suppressedCooldown
+        }
+
+        guard targetURL != nil else {
+            let message = "Firmware target is not configured. Set SILLYPULT_FIRMWARE_HOST to the device's static IP address."
+            log(message)
+            lastErrorMessage = message
+            lastResult = .failed
+            return .failed
         }
 
         busy = true
@@ -576,10 +623,12 @@ actor FirmwareController {
             request.timeoutInterval = 10
 
             log("Sending firmware command: POST \(launchURL.absoluteString)")
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await requestExecutor(request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
-                log("Firmware launch response was not HTTP.")
+                let message = "Firmware launch response was not HTTP."
+                log(message)
+                lastErrorMessage = message
                 lastResult = .failed
                 return .failed
             }
@@ -589,34 +638,41 @@ actor FirmwareController {
 
             if httpResponse.statusCode == 429 {
                 lastResult = .suppressedBusy
+                lastErrorMessage = nil
                 return .suppressedBusy
             }
 
             guard (200...299).contains(httpResponse.statusCode) else {
+                lastErrorMessage = "Firmware launch failed with HTTP \(httpResponse.statusCode). Body: \(body)"
                 lastResult = .failed
                 return .failed
             }
 
             let ready = try await waitUntilReady()
             guard ready else {
-                log("Firmware did not return ready before timeout.")
+                let message = "Firmware did not return ready before timeout."
+                log(message)
+                lastErrorMessage = message
                 lastResult = .failed
                 return .failed
             }
 
             lastActivationAt = Date()
             lastResult = .activated
+            lastErrorMessage = nil
             log("Firmware cycle completed and device is ready.")
             return .activated
         } catch {
-            log("Firmware command failed: \(error.localizedDescription)")
+            let message = "Firmware command failed: \(error.localizedDescription)"
+            log(message)
+            lastErrorMessage = message
             lastResult = .failed
             return .failed
         }
     }
 
     func targetDescription() -> String {
-        launchURL.deletingLastPathComponent().absoluteString
+        targetURL?.absoluteString ?? "unconfigured"
     }
 
     private func waitUntilReady() async throws -> Bool {
@@ -627,7 +683,7 @@ actor FirmwareController {
             request.httpMethod = "GET"
             request.timeoutInterval = 5
 
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await requestExecutor(request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 log("Firmware readiness response was not HTTP.")
                 return false
@@ -640,13 +696,11 @@ actor FirmwareController {
                 return false
             }
 
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let ready = json["ready"] as? Bool,
-               ready {
+            if try parseReadyState(from: data) {
                 return true
             }
 
-            try await Task.sleep(for: .milliseconds(500))
+            try await Task.sleep(nanoseconds: pollIntervalMilliseconds * 1_000_000)
         }
 
         return false
@@ -659,6 +713,21 @@ actor FirmwareController {
     func lastActivationResult() -> ActionTaken? {
         lastResult
     }
+
+    func lastErrorDescription() -> String? {
+        lastErrorMessage
+    }
+
+    private func parseReadyState(from data: Data) throws -> Bool {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let ready = json["ready"] as? Bool else {
+            let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+            throw ProtocolError.invalidStatusPayload(body)
+        }
+
+        return ready
+    }
+
     private func log(_ message: String) {
         print("[FIRMWARE] \(message)")
     }
@@ -1038,6 +1107,7 @@ actor HelperRuntime {
     func status() async -> HelperStatus {
         let settings = (try? currentSettings()) ?? .default
         let operatingMode = HelperLogic.operatingMode(on: Date(), settings: settings)
+        let firmwareError = await firmware.lastErrorDescription()
         return HelperStatus(
             helperStartedAt: Self.formatDate(startedAt),
             notificationMonitorRunning: logMonitor?.isRunning() ?? false,
@@ -1050,7 +1120,7 @@ actor HelperRuntime {
             captureMode: "best_effort_system_log",
             operatingMode: operatingMode,
             firmwareTarget: await firmware.targetDescription(),
-            lastError: lastError
+            lastError: firmwareError ?? lastError
         )
     }
 

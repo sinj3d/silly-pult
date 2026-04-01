@@ -20,6 +20,40 @@ const helperUrl =
   "http://127.0.0.1:42424";
 const helperPort = Number(new URL(helperUrl).port || 42424);
 
+function configuredFirmwareHost() {
+  const host =
+    process.env.SILLYPULT_FIRMWARE_HOST ??
+    process.env.SILLYPLUT_FIRMWARE_HOST ??
+    "";
+
+  return host.trim();
+}
+
+function configuredFirmwarePort() {
+  return (
+    process.env.SILLYPULT_FIRMWARE_PORT ??
+    process.env.SILLYPLUT_FIRMWARE_PORT ??
+    "80"
+  );
+}
+
+function configuredFirmwareTimeoutSeconds() {
+  return (
+    process.env.SILLYPULT_FIRMWARE_TIMEOUT_SECONDS ??
+    process.env.SILLYPLUT_FIRMWARE_TIMEOUT_SECONDS ??
+    "30"
+  );
+}
+
+function configuredFirmwareTarget() {
+  const host = configuredFirmwareHost();
+  if (!host) {
+    return "unconfigured";
+  }
+
+  return `http://${host}:${configuredFirmwarePort()}/`;
+}
+
 function getState(): ManagedHelperState {
   if (!global.__SILLYPULT_HELPER_STATE__) {
     global.__SILLYPULT_HELPER_STATE__ = { logs: [] };
@@ -132,12 +166,19 @@ export async function startHelper() {
 
   await migrateLegacyDatabaseIfNeeded();
 
+  const firmwareHost = configuredFirmwareHost();
+  const firmwarePort = configuredFirmwarePort();
+  const firmwareTimeoutSeconds = configuredFirmwareTimeoutSeconds();
+
   const child = spawn("swift", ["run", "SillyPultHelper"], {
     cwd: helperWorkingDirectory(),
     env: {
       ...process.env,
       SILLYPULT_HELPER_PORT: String(helperPort),
       SILLYPULT_DB_PATH: helperDatabasePath(),
+      SILLYPULT_FIRMWARE_HOST: firmwareHost,
+      SILLYPULT_FIRMWARE_PORT: firmwarePort,
+      SILLYPULT_FIRMWARE_TIMEOUT_SECONDS: firmwareTimeoutSeconds,
     },
     stdio: "pipe",
   });
@@ -159,7 +200,7 @@ export async function startHelper() {
     appendLog(`helper exited with code ${code ?? "unknown"}`);
   });
 
-  appendLog("starting helper via swift run");
+  appendLog(`starting helper via swift run (firmware target: ${configuredFirmwareTarget()})`);
   return waitForHealthy();
 }
 

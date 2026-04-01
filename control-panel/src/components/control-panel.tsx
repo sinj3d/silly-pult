@@ -202,7 +202,7 @@ export function ControlPanel() {
               Capture: {overview.status?.captureMode ?? "best_effort_system_log"}
             </div>
             <div>
-              Firmware target: {overview.status?.firmwareTarget ?? "http://192.168.4.1:80/"}
+              Firmware target: {overview.status?.firmwareTarget ?? "unconfigured"}
             </div>
             <div>Chrome domain: {overview.status?.currentBrowserDomain ?? "none"}</div>
           </div>
@@ -444,6 +444,7 @@ export function ControlPanel() {
               <div>Notification monitor: {overview.status?.notificationMonitorRunning ? "running" : "stopped"}</div>
               <div>Firmware busy: {overview.status?.firmwareBusy ? "yes" : "no"}</div>
               <div>Firmware target: {overview.status?.firmwareTarget ?? "unknown"}</div>
+              <div>Last error: {overview.status?.lastError ?? "none"}</div>
               <div>Last detected: {overview.status?.lastDetectedAt ? new Date(overview.status.lastDetectedAt).toLocaleString() : "none"}</div>
             </div>
           </div>

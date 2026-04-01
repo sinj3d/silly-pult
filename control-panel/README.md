@@ -1,36 +1,27 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SillyPult Control Panel
 
-## Getting Started
+Next.js dashboard for starting the local helper, viewing helper and firmware
+state, editing settings, and sending test notifications through the normal
+notification pipeline.
 
-First, run the development server:
+## Development
+
+Run the panel from the repo root:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev:panel
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The panel talks to the local helper at `http://127.0.0.1:42424` by default.
+When you use the built-in "Start Helper" action, the spawned helper process
+inherits these firmware settings from the panel server environment:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+export SILLYPULT_FIRMWARE_HOST=192.168.1.50
+export SILLYPULT_FIRMWARE_PORT=80
+export SILLYPULT_FIRMWARE_TIMEOUT_SECONDS=30
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+If `SILLYPULT_FIRMWARE_HOST` is unset, the dashboard will show the firmware
+target as `unconfigured` and catapult activations will fail until the static
+device IP is configured.

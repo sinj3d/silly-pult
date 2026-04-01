@@ -26,14 +26,19 @@ Run the helper directly:
 npm run dev:helper
 ```
 
-If the ESP32 is reachable over WiFi, point the helper at its fixed host and
-port before starting it:
+If the ESP32 is reachable over WiFi, set the helper to the device's static IP
+and port before starting it. The managed helper launched from the control panel
+inherits the same server-side environment variables.
 
 ```bash
-export SILLYPULT_FIRMWARE_HOST=192.168.4.1
+export SILLYPULT_FIRMWARE_HOST=192.168.1.50
 export SILLYPULT_FIRMWARE_PORT=80
 export SILLYPULT_FIRMWARE_TIMEOUT_SECONDS=30
 ```
+
+If `SILLYPULT_FIRMWARE_HOST` is not set, the helper will stay online but mark
+the firmware target as `unconfigured` and activation attempts will fail with a
+clear error in the dashboard.
 
 Helper tests:
 
@@ -62,7 +67,7 @@ uses for focus-mode distraction events.
 - Focus mode is a manual toggle in the control panel.
 - Test notifications emit a macOS toast and then mirror into the same helper
   rules engine, including the focus filter when active.
-- Firmware launches are sent over WiFi as `POST /launch`.
+- Firmware launches are sent over WiFi to the configured static target as `POST /launch`.
 - Completion is tracked by polling `GET /status` until `ready: true`.
 - Helper stdout now emits `[FIRMWARE]` logs when commands are sent to the ESP32,
   when HTTP responses arrive, and while readiness is being polled.
