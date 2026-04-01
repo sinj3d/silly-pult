@@ -758,23 +758,40 @@ actor BrowserTracker {
 }
 
 actor NotificationDeduper {
-    private var seenKeys: [NotificationDeduplicationKey: Date] = [:]
+    private var seenRequestIDs: [String: Date] = [:]
+    private var seenFallbackKeys: [NotificationDeduplicationKey: Date] = [:]
 
     func shouldProcess(_ observed: ObservedNotification, at date: Date) -> Bool {
-        pruneEntries(olderThan: date.addingTimeInterval(-5))
-
         let key = HelperLogic.notificationDeduplicationKey(for: observed, at: date)
-        if seenKeys[key] != nil {
+        pruneEntries(
+            fallbackOlderThan: date.addingTimeInterval(-5),
+            requestIDOlderThan: date.addingTimeInterval(-24 * 60 * 60)
+        )
+
+        if let requestID = key.requestID {
+            if seenRequestIDs[requestID] != nil {
+                return false
+            }
+
+            seenRequestIDs[requestID] = date
+            return true
+        }
+
+        if seenFallbackKeys[key] != nil {
             return false
         }
 
-        seenKeys[key] = date
+        seenFallbackKeys[key] = date
         return true
     }
 
-    private func pruneEntries(olderThan cutoff: Date) {
-        seenKeys = seenKeys.filter { _, seenAt in
-            seenAt >= cutoff
+    private func pruneEntries(fallbackOlderThan fallbackCutoff: Date, requestIDOlderThan requestIDCutoff: Date) {
+        seenFallbackKeys = seenFallbackKeys.filter { _, seenAt in
+            seenAt >= fallbackCutoff
+        }
+
+        seenRequestIDs = seenRequestIDs.filter { _, seenAt in
+            seenAt >= requestIDCutoff
         }
     }
 }

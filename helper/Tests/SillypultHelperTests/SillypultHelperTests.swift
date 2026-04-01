@@ -105,7 +105,7 @@ import Testing
         title: "Standup soon",
         body: "Join in 5 minutes",
         isTest: false,
-        metadata: ["requestID": "abc-123"]
+        metadata: [:]
     )
     let changedContent = ObservedNotification(
         sourceBundleID: "com.tinyspeck.slackmacgap",
@@ -113,7 +113,7 @@ import Testing
         title: "Standup soon",
         body: "Join in 10 minutes",
         isTest: false,
-        metadata: ["requestID": "def-456"]
+        metadata: [:]
     )
     let date = Date(timeIntervalSince1970: 1_775_061_200.25)
 
@@ -132,4 +132,23 @@ import Testing
     let requestID = NotificationLogMonitor.parseRequestID(from: line)
 
     #expect(requestID == "EB5B-4A50")
+}
+
+@Test func requestIDDeduplicationPersistsBeyondShortFallbackWindow() async throws {
+    let deduper = NotificationDeduper()
+    let observed = ObservedNotification(
+        sourceBundleID: "com.linkedin.LinkedIn",
+        sourceApp: "com.linkedin.LinkedIn",
+        title: nil,
+        body: nil,
+        isTest: false,
+        metadata: ["requestID": "59BE-F2A0"]
+    )
+    let date = Date(timeIntervalSince1970: 1_775_062_000.0)
+
+    let first = await deduper.shouldProcess(observed, at: date)
+    let tenSecondsLater = await deduper.shouldProcess(observed, at: date.addingTimeInterval(10))
+
+    #expect(first)
+    #expect(!tenSecondsLater)
 }
