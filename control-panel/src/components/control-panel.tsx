@@ -155,7 +155,7 @@ export function ControlPanel() {
       <section className="grid gap-4 rounded-[2rem] border border-white/10 bg-slate-950/90 p-6 shadow-[0_30px_90px_rgba(15,23,42,0.45)] backdrop-blur sm:grid-cols-[1.5fr_1fr]">
         <div className="space-y-4">
           <p className="text-xs uppercase tracking-[0.35em] text-cyan-300/80">
-            SillyPlut Control Panel
+            SillyPult Control Panel
           </p>
           <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-white sm:text-5xl">
             Any macOS notification can fire the catapult.

@@ -1,5 +1,5 @@
 const HELPER_URL = "http://127.0.0.1:42424/api/browser-activity";
-const HEARTBEAT_ALARM = "sillyplut-heartbeat";
+const HEARTBEAT_ALARM = "sillypult-heartbeat";
 
 function normalizeHostname(urlString) {
   try {

@@ -1,6 +1,6 @@
-# SillyPlut
+# SillyPult
 
-SillyPlut is a local macOS MVP where the catapult is the notification channel:
+SillyPult is a local macOS MVP where the catapult is the notification channel:
 any detected macOS notification can trigger it. Focus mode is an optional
 toggle that switches the helper into work-only notification filtering, and
 Chrome distraction handling is layered on top of that focused state.
@@ -30,9 +30,9 @@ If the ESP32 is reachable over WiFi, point the helper at its fixed host and
 port before starting it:
 
 ```bash
-export SILLYPLUT_FIRMWARE_HOST=192.168.4.1
-export SILLYPLUT_FIRMWARE_PORT=80
-export SILLYPLUT_FIRMWARE_TIMEOUT_SECONDS=30
+export SILLYPULT_FIRMWARE_HOST=192.168.4.1
+export SILLYPULT_FIRMWARE_PORT=80
+export SILLYPULT_FIRMWARE_TIMEOUT_SECONDS=30
 ```
 
 Helper tests:
@@ -66,4 +66,4 @@ uses for focus-mode distraction events.
 - Completion is tracked by polling `GET /status` until `ready: true`.
 - Helper stdout now emits `[FIRMWARE]` logs when commands are sent to the ESP32,
   when HTTP responses arrive, and while readiness is being polled.
-- Local helper data is stored in `~/Library/Application Support/SillyPlut/`.
+- Local helper data is stored in `~/Library/Application Support/SillyPult/`.

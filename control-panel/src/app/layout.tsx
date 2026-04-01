@@ -14,7 +14,7 @@ const monoFont = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SillyPlut Control Panel",
+  title: "SillyPult Control Panel",
   description: "Trigger the catapult for any macOS notification, with optional focus filtering.",
 };
 

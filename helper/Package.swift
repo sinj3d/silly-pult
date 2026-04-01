@@ -4,20 +4,27 @@
 import PackageDescription
 
 let package = Package(
-    name: "SillypultHelper",
+    name: "SillyPultHelper",
     platforms: [
         .macOS(.v13),
     ],
     targets: [
-        .executableTarget(
-            name: "SillypultHelper",
+        .target(
+            name: "SillyPultHelperKit",
+            path: "Sources/SillyPultHelper",
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
             ]
         ),
+        .executableTarget(
+            name: "SillyPultHelper",
+            dependencies: ["SillyPultHelperKit"],
+            path: "Sources/SillyPultHelperExecutable"
+        ),
         .testTarget(
-            name: "SillypultHelperTests",
-            dependencies: ["SillypultHelper"]
+            name: "SillyPultHelperTests",
+            dependencies: ["SillyPultHelperKit"],
+            path: "Tests/SillyPultHelperTests"
         ),
     ],
     swiftLanguageModes: [.v6]

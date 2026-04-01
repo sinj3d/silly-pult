@@ -4,7 +4,7 @@ import Foundation
 import Network
 import SQLite3
 
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+nonisolated(unsafe) private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 struct HelperConfiguration {
     let port: UInt16
@@ -16,11 +16,13 @@ struct HelperConfiguration {
 
     static func fromEnvironment() -> HelperConfiguration {
         let env = ProcessInfo.processInfo.environment
-        let port = UInt16(env["SILLYPLUT_HELPER_PORT"] ?? "") ?? 42424
-        let databasePath = env["SILLYPLUT_DB_PATH"] ?? "\(FileManager.default.homeDirectoryForCurrentUser.path)/Library/Application Support/SillyPlut/sillyplut.sqlite3"
-        let firmwareHost = env["SILLYPLUT_FIRMWARE_HOST"] ?? "192.168.4.1"
-        let firmwarePort = UInt16(env["SILLYPLUT_FIRMWARE_PORT"] ?? "") ?? 80
-        let firmwareReadyTimeoutSeconds = Int(env["SILLYPLUT_FIRMWARE_TIMEOUT_SECONDS"] ?? "") ?? 30
+        let port = UInt16(env["SILLYPULT_HELPER_PORT"] ?? env["SILLYPLUT_HELPER_PORT"] ?? "") ?? 42424
+        let databasePath = env["SILLYPULT_DB_PATH"]
+            ?? env["SILLYPLUT_DB_PATH"]
+            ?? "\(FileManager.default.homeDirectoryForCurrentUser.path)/Library/Application Support/SillyPult/sillypult.sqlite3"
+        let firmwareHost = env["SILLYPULT_FIRMWARE_HOST"] ?? env["SILLYPLUT_FIRMWARE_HOST"] ?? "192.168.4.1"
+        let firmwarePort = UInt16(env["SILLYPULT_FIRMWARE_PORT"] ?? env["SILLYPLUT_FIRMWARE_PORT"] ?? "") ?? 80
+        let firmwareReadyTimeoutSeconds = Int(env["SILLYPULT_FIRMWARE_TIMEOUT_SECONDS"] ?? env["SILLYPLUT_FIRMWARE_TIMEOUT_SECONDS"] ?? "") ?? 30
 
         return HelperConfiguration(
             port: port,
@@ -291,7 +293,7 @@ final class SQLiteStore: @unchecked Sendable {
     private var db: OpaquePointer?
     private let encoder = JSONEncoder.helperEncoder
     private let decoder = JSONDecoder.helperDecoder
-    private let queue = DispatchQueue(label: "sillyplut.sqlite")
+    private let queue = DispatchQueue(label: "sillypult.sqlite")
 
     init(path: String) throws {
         let fileManager = FileManager.default
@@ -1086,7 +1088,7 @@ actor HelperRuntime {
         case "general-notification":
             sourceApp = "LinkedIn"
             title = "General notification"
-            body = "This is the default SillyPlut behavior test."
+            body = "This is the default SillyPult behavior test."
         case "work-notification":
             let settings = try currentSettings()
             sourceApp = settings.workAppAllowlist.first ?? "Slack"
@@ -1102,7 +1104,7 @@ actor HelperRuntime {
 
         let escapedBody = body.replacingOccurrences(of: "\"", with: "\\\"")
         let escapedTitle = title.replacingOccurrences(of: "\"", with: "\\\"")
-        let script = #"display notification "\#(escapedBody)" with title "\#(escapedTitle)" subtitle "SillyPlut Test""#
+        let script = #"display notification "\#(escapedBody)" with title "\#(escapedTitle)" subtitle "SillyPult Test""#
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", script]
@@ -1298,9 +1300,8 @@ final class LocalHTTPServer: @unchecked Sendable {
     }
 }
 
-@main
-struct SillypultHelperMain {
-    static func main() async {
+public enum SillyPultHelperMain {
+    public static func run() async {
         let configuration = HelperConfiguration.fromEnvironment()
         let store: SQLiteStore
 
@@ -1315,7 +1316,7 @@ struct SillypultHelperMain {
 
         do {
             try await runtime.start()
-            print("Sillypult helper listening on \(configuration.port)")
+            print("SillyPult helper listening on \(configuration.port)")
             while true {
                 try? await Task.sleep(for: .seconds(60))
             }

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "SillyPlut Chrome Tracker",
+  "name": "SillyPult Chrome Tracker",
   "version": "0.1.0",
-  "description": "Reports active Chrome domains to the local SillyPlut helper.",
+  "description": "Reports active Chrome domains to the local SillyPult helper.",
   "permissions": ["tabs", "alarms"],
   "host_permissions": [
     "http://127.0.0.1:42424/*",

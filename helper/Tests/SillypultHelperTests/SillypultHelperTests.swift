@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import SillypultHelper
+@testable import SillyPultHelperKit
 
 @Test func defaultSettingsStartWithFocusDisabled() async throws {
     #expect(!Settings.default.focusModeEnabled)

@@ -11,18 +11,21 @@ type ManagedHelperState = {
 };
 
 declare global {
-  var __SILLYPLUT_HELPER_STATE__: ManagedHelperState | undefined;
+  var __SILLYPULT_HELPER_STATE__: ManagedHelperState | undefined;
 }
 
-const helperUrl = process.env.SILLYPLUT_HELPER_URL ?? "http://127.0.0.1:42424";
+const helperUrl =
+  process.env.SILLYPULT_HELPER_URL ??
+  process.env.SILLYPLUT_HELPER_URL ??
+  "http://127.0.0.1:42424";
 const helperPort = Number(new URL(helperUrl).port || 42424);
 
 function getState(): ManagedHelperState {
-  if (!global.__SILLYPLUT_HELPER_STATE__) {
-    global.__SILLYPLUT_HELPER_STATE__ = { logs: [] };
+  if (!global.__SILLYPULT_HELPER_STATE__) {
+    global.__SILLYPULT_HELPER_STATE__ = { logs: [] };
   }
 
-  return global.__SILLYPLUT_HELPER_STATE__;
+  return global.__SILLYPULT_HELPER_STATE__;
 }
 
 function appendLog(line: string) {
@@ -39,13 +42,23 @@ function helperDatabasePath() {
     os.homedir(),
     "Library",
     "Application Support",
-    "SillyPlut",
-    "sillyplut.sqlite3",
+    "SillyPult",
+    "sillypult.sqlite3",
   );
 }
 
 function legacyHelperDatabasePath() {
   return path.resolve(process.cwd(), "../.sillyplut-data/sillyplut.sqlite3");
+}
+
+function legacyAppSupportDatabasePath() {
+  return path.join(
+    os.homedir(),
+    "Library",
+    "Application Support",
+    "SillyPlut",
+    "sillyplut.sqlite3",
+  );
 }
 
 async function fileExists(targetPath: string) {
@@ -59,7 +72,6 @@ async function fileExists(targetPath: string) {
 
 async function migrateLegacyDatabaseIfNeeded() {
   const targetPath = helperDatabasePath();
-  const legacyPath = legacyHelperDatabasePath();
 
   await mkdir(path.dirname(targetPath), { recursive: true });
 
@@ -67,12 +79,20 @@ async function migrateLegacyDatabaseIfNeeded() {
     return;
   }
 
-  if (!(await fileExists(legacyPath))) {
+  const legacyCandidates = [
+    legacyAppSupportDatabasePath(),
+    legacyHelperDatabasePath(),
+  ];
+
+  for (const legacyPath of legacyCandidates) {
+    if (!(await fileExists(legacyPath))) {
+      continue;
+    }
+
+    await copyFile(legacyPath, targetPath);
+    appendLog(`migrated helper database from ${legacyPath}`);
     return;
   }
-
-  await copyFile(legacyPath, targetPath);
-  appendLog(`migrated helper database from ${legacyPath}`);
 }
 
 export function managedHelperLogs() {
@@ -112,12 +132,12 @@ export async function startHelper() {
 
   await migrateLegacyDatabaseIfNeeded();
 
-  const child = spawn("swift", ["run", "SillypultHelper"], {
+  const child = spawn("swift", ["run", "SillyPultHelper"], {
     cwd: helperWorkingDirectory(),
     env: {
       ...process.env,
-      SILLYPLUT_HELPER_PORT: String(helperPort),
-      SILLYPLUT_DB_PATH: helperDatabasePath(),
+      SILLYPULT_HELPER_PORT: String(helperPort),
+      SILLYPULT_DB_PATH: helperDatabasePath(),
     },
     stdio: "pipe",
   });

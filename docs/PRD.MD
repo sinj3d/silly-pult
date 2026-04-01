@@ -1,5 +1,5 @@
 PRD
-# SillyPlut
+# SillyPult
 This project is designed to enhance notification reception by utilizing a physical catapault to sling a harmless object towards the user when any notification is received.
 
 ## Scope
