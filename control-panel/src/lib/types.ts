@@ -16,6 +16,7 @@ export type NotificationEvent = {
   classification: "allowed" | "ignored" | "distraction" | "unknown";
   triggerReason: "notification" | "distraction";
   actionTaken:
+    | "pending"
     | "activated"
     | "ignored"
     | "suppressed_busy"

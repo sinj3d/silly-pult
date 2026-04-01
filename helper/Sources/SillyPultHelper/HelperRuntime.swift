@@ -104,6 +104,7 @@ enum TriggerReason: String, Codable, Sendable {
 }
 
 enum ActionTaken: String, Codable, Sendable {
+    case pending
     case activated
     case ignored
     case suppressedBusy = "suppressed_busy"
@@ -400,6 +401,24 @@ final class SQLiteStore: @unchecked Sendable {
             bind(statement, value: event.triggerReason.rawValue, index: 8)
             bind(statement, value: event.actionTaken.rawValue, index: 9)
             bind(statement, value: metadataJSON, index: 10)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw lastError()
+            }
+        }
+    }
+
+    func updateEventAction(id: String, action: ActionTaken) throws {
+        try queue.sync {
+            let statement = try prepare("""
+            UPDATE events
+            SET action_taken = ?
+            WHERE id = ?;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            bind(statement, value: action.rawValue, index: 1)
+            bind(statement, value: id, index: 2)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw lastError()
@@ -1163,22 +1182,40 @@ actor HelperRuntime {
         try? process.run()
 
         let settings = try currentSettings()
-        let decision = HelperLogic.notificationDecision(for: sourceApp, bundleID: nil, settings: settings, at: Date())
-        let action = await resolveAction(for: decision, settings: settings)
+        let now = Date()
+        let decision = HelperLogic.notificationDecision(for: sourceApp, bundleID: nil, settings: settings, at: now)
+        let initialAction: ActionTaken = decision.actionRequired ? .pending : .ignored
         let event = NotificationEvent(
             id: UUID().uuidString,
-            receivedAt: Self.formatDate(Date()),
+            receivedAt: Self.formatDate(now),
             sourceApp: sourceApp,
             title: title,
             body: body,
             isTest: true,
             classification: decision.classification,
             triggerReason: .notification,
-            actionTaken: action,
+            actionTaken: initialAction,
             metadata: ["captureSource": "synthetic-test-fallback", "variant": variant]
         )
         try store.insertEvent(event)
+
+        if decision.actionRequired {
+            Task {
+                await self.completePendingTestEvent(eventID: event.id, decision: decision, settings: settings)
+            }
+        }
+
         return event
+    }
+
+    private func completePendingTestEvent(eventID: String, decision: RuleDecision, settings: Settings) async {
+        let action = await resolveAction(for: decision, settings: settings)
+
+        do {
+            try store.updateEventAction(id: eventID, action: action)
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     private func setLastError(_ message: String) {
