@@ -2,8 +2,57 @@ import Foundation
 import Testing
 @testable import SillyPultHelperKit
 
+private actor RequestSequence {
+    private var responses: [(Data, HTTPURLResponse)]
+    private var requests: [URLRequest] = []
+
+    init(responses: [(Data, HTTPURLResponse)]) {
+        self.responses = responses
+    }
+
+    func next(for request: URLRequest) -> (Data, URLResponse) {
+        requests.append(request)
+        return responses.removeFirst()
+    }
+
+    func receivedRequests() -> [URLRequest] {
+        requests
+    }
+}
+
+private func httpResponse(url: String, statusCode: Int) -> HTTPURLResponse {
+    HTTPURLResponse(
+        url: URL(string: url)!,
+        statusCode: statusCode,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+    )!
+}
+
 @Test func defaultSettingsStartWithFocusDisabled() async throws {
     #expect(!Settings.default.focusModeEnabled)
+}
+
+@Test func firmwareConfigurationRequiresExplicitStaticHost() async throws {
+    let configuration = HelperConfiguration.fromEnvironment([
+        "SILLYPULT_HELPER_PORT": "42424",
+        "SILLYPULT_FIRMWARE_PORT": "8080",
+    ])
+
+    #expect(configuration.firmwareHost == nil)
+    #expect(configuration.firmwarePort == 8080)
+}
+
+@Test func firmwareConfigurationUsesCanonicalHostWhenProvided() async throws {
+    let configuration = HelperConfiguration.fromEnvironment([
+        "SILLYPULT_FIRMWARE_HOST": " 192.168.1.50 ",
+        "SILLYPULT_FIRMWARE_PORT": "80",
+        "SILLYPULT_FIRMWARE_TIMEOUT_SECONDS": "12",
+    ])
+
+    #expect(configuration.firmwareHost == "192.168.1.50")
+    #expect(configuration.firmwarePort == 80)
+    #expect(configuration.firmwareReadyTimeoutSeconds == 12)
 }
 
 @Test func settingsDecodeWithoutFocusToggleDefaultsToOff() async throws {
@@ -151,4 +200,97 @@ import Testing
 
     #expect(first)
     #expect(!tenSecondsLater)
+}
+
+@Test func firmwareActivationReturnsActivatedAfterReadyPoll() async throws {
+    let sequence = RequestSequence(responses: [
+        (
+            Data(#"{"status":"launch triggered"}"#.utf8),
+            httpResponse(url: "http://192.168.1.50:80/launch", statusCode: 200)
+        ),
+        (
+            Data(#"{"ready":true,"ip":"192.168.1.50"}"#.utf8),
+            httpResponse(url: "http://192.168.1.50:80/status", statusCode: 200)
+        ),
+    ])
+    let controller = FirmwareController(
+        host: "192.168.1.50",
+        port: 80,
+        readyTimeoutSeconds: 1,
+        pollIntervalMilliseconds: 1,
+        requestExecutor: { request in
+            await sequence.next(for: request)
+        }
+    )
+
+    let result = await controller.activate(cooldownSeconds: 0)
+    let requests = await sequence.receivedRequests()
+
+    #expect(result == .activated)
+    #expect(await controller.targetDescription() == "http://192.168.1.50:80")
+    #expect(await controller.lastErrorDescription() == nil)
+    #expect(requests.count == 2)
+    #expect(requests[0].httpMethod == "POST")
+    #expect(requests[1].httpMethod == "GET")
+}
+
+@Test func firmwareActivationReturnsBusyWhenLaunchEndpointRejectsRequest() async throws {
+    let sequence = RequestSequence(responses: [
+        (
+            Data(#"{"error":"launch already in progress"}"#.utf8),
+            httpResponse(url: "http://192.168.1.50:80/launch", statusCode: 429)
+        ),
+    ])
+    let controller = FirmwareController(
+        host: "192.168.1.50",
+        port: 80,
+        readyTimeoutSeconds: 1,
+        pollIntervalMilliseconds: 1,
+        requestExecutor: { request in
+            await sequence.next(for: request)
+        }
+    )
+
+    let result = await controller.activate(cooldownSeconds: 0)
+
+    #expect(result == .suppressedBusy)
+    #expect(await controller.lastErrorDescription() == nil)
+}
+
+@Test func firmwareActivationFailsWhenStatusPayloadIsMalformed() async throws {
+    let sequence = RequestSequence(responses: [
+        (
+            Data(#"{"status":"launch triggered"}"#.utf8),
+            httpResponse(url: "http://192.168.1.50:80/launch", statusCode: 200)
+        ),
+        (
+            Data(#"{"ip":"192.168.1.50"}"#.utf8),
+            httpResponse(url: "http://192.168.1.50:80/status", statusCode: 200)
+        ),
+    ])
+    let controller = FirmwareController(
+        host: "192.168.1.50",
+        port: 80,
+        readyTimeoutSeconds: 1,
+        pollIntervalMilliseconds: 1,
+        requestExecutor: { request in
+            await sequence.next(for: request)
+        }
+    )
+
+    let result = await controller.activate(cooldownSeconds: 0)
+    let error = await controller.lastErrorDescription()
+
+    #expect(result == .failed)
+    #expect(error?.contains("did not include a boolean ready flag") == true)
+}
+
+@Test func firmwareActivationFailsWhenTargetIsUnconfigured() async throws {
+    let controller = FirmwareController(host: nil, port: 80, readyTimeoutSeconds: 1)
+
+    let result = await controller.activate(cooldownSeconds: 0)
+
+    #expect(result == .failed)
+    #expect(await controller.targetDescription() == "unconfigured")
+    #expect(await controller.lastErrorDescription()?.contains("SILLYPULT_FIRMWARE_HOST") == true)
 }
