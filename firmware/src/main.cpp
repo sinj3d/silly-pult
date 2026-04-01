@@ -31,9 +31,9 @@
 
 // Reload motor – 4-wire unipolar stepper (IN1-IN4 on ULN2003)
 #define RELOAD_IN1          17
-#define RELOAD_IN2          8
-#define RELOAD_IN3          9
-#define RELOAD_IN4          10
+#define RELOAD_IN2          10
+#define RELOAD_IN3          8
+#define RELOAD_IN4          9
 
 // ──────────────────────────────────────────────
 // Stepper Tuning
@@ -64,8 +64,8 @@ const char* WIFI_PASSWORD = "YOUR_PASSWORD";
 WebServer server(80);
 volatile bool launchRequested = false;
 
-// Stepper.h expects pins in the order: IN1, IN3, IN2, IN4
-// (the library uses a different internal wiring sequence)
+// 28BYJ-48: Stepper.h pairs (pin1,pin3) and (pin2,pin4) internally,
+// so pass IN1, IN3, IN2, IN4 to match adjacent coil activation
 Stepper reloadMotor(RELOAD_STEPS_PER_REV, RELOAD_IN1, RELOAD_IN3, RELOAD_IN2, RELOAD_IN4);
 
 // ──────────────────────────────────────────────
@@ -82,7 +82,8 @@ void initSteppers() {
 
     // --- Reload motor (Stepper.h) ---
     reloadMotor.setSpeed(RELOAD_RPM);
-    Serial.println("[STEPPER] Reload motor initialised (Stepper.h, pins 17-8-9-10)");
+    Serial.printf("[STEPPER] Reload motor initialised (Stepper.h, pins %d-%d-%d-%d, %d RPM)\n",
+                  RELOAD_IN1, RELOAD_IN2, RELOAD_IN3, RELOAD_IN4, RELOAD_RPM);
 }
 
 /**
@@ -115,15 +116,48 @@ void rotateLaunchMotor() {
 void testSteppers() {
     Serial.println("[TEST] === Stepper Test Start ===");
 
-    Serial.println("[TEST] Spinning launch motor 360° CCW...");
+    Serial.println("[TEST] Spinning launch motor...");
     rotateLaunchMotor();
     Serial.println("[TEST] Launch motor done.");
 
     delay(500);
 
-    Serial.println("[TEST] Spinning reload motor one full revolution...");
-    reloadMotor.step(RELOAD_STEPS);
-    Serial.println("[TEST] Reload motor done.");
+    // --- Manual slow-step test ---
+    // Drives each coil one at a time, very slowly, so you can
+    // see the LEDs cycle AND feel the shaft try to move.
+    const int pins[] = { RELOAD_IN1, RELOAD_IN2, RELOAD_IN3, RELOAD_IN4 };
+    for (int i = 0; i < 4; i++) {
+        pinMode(pins[i], OUTPUT);
+        digitalWrite(pins[i], LOW);
+    }
+
+    // Full-step sequence: energise one coil at a time
+    // A → B → C → D → A → B → C → D  (2 full cycles, 8 steps)
+    Serial.println("[TEST] Manual full-step test (slow, 500ms per step):");
+    for (int cycle = 0; cycle < 2; cycle++) {
+        for (int step = 0; step < 4; step++) {
+            // Turn all off
+            for (int i = 0; i < 4; i++) digitalWrite(pins[i], LOW);
+            // Turn on just this coil
+            digitalWrite(pins[step], HIGH);
+            Serial.printf("  Step %d: IN%d ON\n", cycle * 4 + step, step + 1);
+            delay(500);
+        }
+    }
+    // All off
+    for (int i = 0; i < 4; i++) digitalWrite(pins[i], LOW);
+    Serial.println("[TEST] Manual test done.");
+
+    delay(500);
+
+    // Now try Stepper.h at very low speed
+    Serial.println("[TEST] Stepper.step(200) at 2 RPM...");
+    reloadMotor.setSpeed(2);
+    reloadMotor.step(200);
+    Serial.println("[TEST] Stepper test done.");
+
+    // Restore speed
+    reloadMotor.setSpeed(RELOAD_RPM);
 
     Serial.println("[TEST] === Stepper Test Complete ===");
 }
