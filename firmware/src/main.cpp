@@ -9,14 +9,11 @@
  *   2. RELOAD motor  – rotates to load the next ball
  *
  * Communication:
- *   Primary control path is USB serial. The backend writes:
- *     activate\n
- *   Firmware responds with:
- *     accepted
- *     busy
- *     complete
+ *   Primary control path is WiFi HTTP.
+ *   The backend sends POST /launch to trigger a launch-reload cycle and
+ *   polls GET /status until ready becomes true again.
  *
- *   HTTP launch/status endpoints are still available for bench testing.
+ *   USB serial remains available for debug logs only.
  *
  * Stepper drivers assumed: A4988 / DRV8825 style (STEP + DIR pins).
  */
@@ -72,7 +69,6 @@ FastAccelStepper *reloadStepper = nullptr;
 WebServer server(80);
 
 volatile bool launchRequested = false;
-String serialCommandBuffer = "";
 
 // ──────────────────────────────────────────────
 // Stepper helpers
@@ -146,7 +142,6 @@ void executeLaunchCycle() {
     }
 
     Serial.println("[RELOAD] Reload complete – ready for next launch");
-    Serial.println("complete");
 }
 
 // ──────────────────────────────────────────────
@@ -188,57 +183,6 @@ void handleStatus() {
 
 void handleNotFound() {
     server.send(404, "application/json", "{\"error\":\"not found\"}");
-}
-
-// ──────────────────────────────────────────────
-// Serial Command Handling
-// ──────────────────────────────────────────────
-void handleSerialCommand(String command) {
-    command.trim();
-    if (command.length() == 0) {
-        return;
-    }
-
-    if (command == "activate") {
-        if (launchRequested) {
-            Serial.println("busy");
-            Serial.println("[SERIAL] Host activate rejected because launch is already in progress");
-            return;
-        }
-
-        launchRequested = true;
-        Serial.println("accepted");
-        Serial.println("[SERIAL] Host activate accepted");
-        return;
-    }
-
-    if (command == "status") {
-        bool ready = !launchRequested
-                     && reloadStepper && !reloadStepper->isRunning();
-        Serial.println(ready ? "ready" : "busy");
-        Serial.printf("[SERIAL] Host status requested -> %s\n", ready ? "ready" : "busy");
-        return;
-    }
-
-    Serial.printf("[SERIAL] Unknown command: %s\n", command.c_str());
-}
-
-void processSerialCommands() {
-    while (Serial.available() > 0) {
-        char incoming = static_cast<char>(Serial.read());
-
-        if (incoming == '\r') {
-            continue;
-        }
-
-        if (incoming == '\n') {
-            handleSerialCommand(serialCommandBuffer);
-            serialCommandBuffer = "";
-            continue;
-        }
-
-        serialCommandBuffer += incoming;
-    }
 }
 
 // ──────────────────────────────────────────────
@@ -288,7 +232,6 @@ void setup() {
 
 void loop() {
     server.handleClient();
-    processSerialCommands();
 
     if (launchRequested) {
         executeLaunchCycle();

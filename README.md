@@ -26,12 +26,12 @@ Run the helper directly:
 npm run dev:helper
 ```
 
-If the ESP32 is connected over USB, point the helper at the macOS serial
-device before starting it:
+If the ESP32 is reachable over WiFi, point the helper at its fixed host and
+port before starting it:
 
 ```bash
-export SILLYPLUT_FIRMWARE_SERIAL_PORT=/dev/cu.usbmodemXXXX
-export SILLYPLUT_FIRMWARE_BAUD_RATE=115200
+export SILLYPLUT_FIRMWARE_HOST=192.168.4.1
+export SILLYPLUT_FIRMWARE_PORT=80
 export SILLYPLUT_FIRMWARE_TIMEOUT_SECONDS=30
 ```
 
@@ -62,8 +62,8 @@ uses for focus-mode distraction events.
 - Focus windows are opt-in and only matter when enabled.
 - Test notifications emit a macOS toast and then mirror into the same helper
   rules engine, including the focus filter when active.
-- Firmware launches are now sent over USB serial as `activate\n`.
-- Firmware responds with `accepted`, `busy`, and `complete`.
+- Firmware launches are sent over WiFi as `POST /launch`.
+- Completion is tracked by polling `GET /status` until `ready: true`.
 - Helper stdout now emits `[FIRMWARE]` logs when commands are sent to the ESP32,
-  when serial responses arrive, and when no device is currently connected.
+  when HTTP responses arrive, and while readiness is being polled.
 - Local helper data is stored in `.sillyplut-data/`.

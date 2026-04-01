@@ -1,5 +1,4 @@
 import AppKit
-import Darwin
 import Dispatch
 import Foundation
 import Network
@@ -11,24 +10,24 @@ struct HelperConfiguration {
     let port: UInt16
     let databasePath: String
     let logPredicate: String
-    let firmwareSerialPort: String?
-    let firmwareBaudRate: speed_t
+    let firmwareHost: String
+    let firmwarePort: UInt16
     let firmwareReadyTimeoutSeconds: Int
 
     static func fromEnvironment() -> HelperConfiguration {
         let env = ProcessInfo.processInfo.environment
         let port = UInt16(env["SILLYPLUT_HELPER_PORT"] ?? "") ?? 42424
         let databasePath = env["SILLYPLUT_DB_PATH"] ?? "\(FileManager.default.homeDirectoryForCurrentUser.path)/Library/Application Support/SillyPlut/sillyplut.sqlite3"
+        let firmwareHost = env["SILLYPLUT_FIRMWARE_HOST"] ?? "192.168.4.1"
+        let firmwarePort = UInt16(env["SILLYPLUT_FIRMWARE_PORT"] ?? "") ?? 80
         let firmwareReadyTimeoutSeconds = Int(env["SILLYPLUT_FIRMWARE_TIMEOUT_SECONDS"] ?? "") ?? 30
-        let firmwareSerialPort = env["SILLYPLUT_FIRMWARE_SERIAL_PORT"]
-        let firmwareBaudRate = speed_t(Int(env["SILLYPLUT_FIRMWARE_BAUD_RATE"] ?? "") ?? 115200)
 
         return HelperConfiguration(
             port: port,
             databasePath: databasePath,
             logPredicate: #"subsystem == "com.apple.usernotificationsd""#,
-            firmwareSerialPort: firmwareSerialPort,
-            firmwareBaudRate: firmwareBaudRate,
+            firmwareHost: firmwareHost,
+            firmwarePort: firmwarePort,
             firmwareReadyTimeoutSeconds: firmwareReadyTimeoutSeconds
         )
     }
@@ -493,16 +492,23 @@ final class SQLiteStore: @unchecked Sendable {
 }
 
 actor FirmwareController {
-    private let configuredSerialPort: String?
-    private let baudRate: speed_t
+    private let launchURL: URL
+    private let statusURL: URL
     private let readyTimeoutSeconds: Int
     private var busy = false
     private var lastActivationAt: Date?
     private var lastResult: ActionTaken?
 
-    init(serialPort: String?, baudRate: speed_t, readyTimeoutSeconds: Int) {
-        self.configuredSerialPort = serialPort
-        self.baudRate = baudRate
+    init(host: String, port: UInt16, readyTimeoutSeconds: Int) {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedHost.isEmpty,
+              let launchURL = URL(string: "http://\(normalizedHost):\(port)/launch"),
+              let statusURL = URL(string: "http://\(normalizedHost):\(port)/status") else {
+            fatalError("Invalid firmware host/port configuration")
+        }
+
+        self.launchURL = launchURL
+        self.statusURL = statusURL
         self.readyTimeoutSeconds = readyTimeoutSeconds
     }
 
@@ -523,61 +529,43 @@ actor FirmwareController {
         defer { busy = false }
 
         do {
-            guard let serialPort = resolveSerialPort() else {
-                log("No firmware serial port found. Set SILLYPLUT_FIRMWARE_SERIAL_PORT or connect the ESP32.")
+            var request = URLRequest(url: launchURL)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 10
+
+            log("Sending firmware command: POST \(launchURL.absoluteString)")
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                log("Firmware launch response was not HTTP.")
                 lastResult = .failed
                 return .failed
             }
 
-            let fileDescriptor = try openSerialPort(serialPort)
-            defer { Darwin.close(fileDescriptor) }
+            let body = String(data: data, encoding: .utf8) ?? ""
+            log("Firmware launch response: HTTP \(httpResponse.statusCode) \(body)")
 
-            let command = "activate\n"
-            log("Sending firmware command over serial \(serialPort): \(command.trimmingCharacters(in: .newlines))")
-            let bytesWritten = command.withCString { pointer in
-                Darwin.write(fileDescriptor, pointer, strlen(pointer))
+            if httpResponse.statusCode == 429 {
+                lastResult = .suppressedBusy
+                return .suppressedBusy
             }
 
-            if bytesWritten < 0 {
-                log("Could not write firmware command: \(String(cString: strerror(errno)))")
+            guard (200...299).contains(httpResponse.statusCode) else {
                 lastResult = .failed
                 return .failed
             }
 
-            var accepted = false
-            let deadline = Date().addingTimeInterval(Double(readyTimeoutSeconds))
-
-            while Date() < deadline {
-                guard let line = try await readLine(from: fileDescriptor, timeoutSeconds: 1.0) else {
-                    continue
-                }
-
-                log("Firmware serial output: \(line)")
-
-                switch line {
-                case "accepted":
-                    accepted = true
-                case "busy":
-                    lastResult = .suppressedBusy
-                    return .suppressedBusy
-                case "complete":
-                    lastActivationAt = Date()
-                    lastResult = .activated
-                    log("Firmware cycle completed and device is ready.")
-                    return .activated
-                default:
-                    continue
-                }
+            let ready = try await waitUntilReady()
+            guard ready else {
+                log("Firmware did not return ready before timeout.")
+                lastResult = .failed
+                return .failed
             }
 
-            if accepted {
-                log("Firmware accepted the command but did not report completion before timeout.")
-            } else {
-                log("Firmware did not acknowledge the activate command before timeout.")
-            }
-
-            lastResult = .failed
-            return .failed
+            lastActivationAt = Date()
+            lastResult = .activated
+            log("Firmware cycle completed and device is ready.")
+            return .activated
         } catch {
             log("Firmware command failed: \(error.localizedDescription)")
             lastResult = .failed
@@ -586,135 +574,40 @@ actor FirmwareController {
     }
 
     func targetDescription() -> String {
-        configuredSerialPort ?? autoDetectSerialPort() ?? "serial:auto-detect"
+        launchURL.deletingLastPathComponent().absoluteString
     }
 
-    private func resolveSerialPort() -> String? {
-        configuredSerialPort ?? autoDetectSerialPort()
-    }
-
-    private func autoDetectSerialPort() -> String? {
-        let deviceRoot = "/dev"
-        let candidates: [String]
-        do {
-            candidates = try FileManager.default.contentsOfDirectory(atPath: deviceRoot)
-        } catch {
-            return nil
-        }
-
-        let preferredPrefixes = [
-            "cu.usbmodem",
-            "cu.usbserial",
-            "cu.wchusbserial",
-            "cu.SLAB_USBtoUART",
-            "cu.usbserial-",
-            "cu.ESP32",
-        ]
-
-        for prefix in preferredPrefixes {
-            if let match = candidates.sorted().first(where: { $0.hasPrefix(prefix) }) {
-                return "\(deviceRoot)/\(match)"
-            }
-        }
-
-        return nil
-    }
-
-    private func openSerialPort(_ path: String) throws -> Int32 {
-        let fileDescriptor = Darwin.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
-        guard fileDescriptor >= 0 else {
-            throw NSError(
-                domain: "FirmwareController",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Could not open serial port \(path): \(String(cString: strerror(errno)))"]
-            )
-        }
-
-        var options = termios()
-        guard tcgetattr(fileDescriptor, &options) == 0 else {
-            Darwin.close(fileDescriptor)
-            throw NSError(
-                domain: "FirmwareController",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Could not read serial attributes for \(path)"]
-            )
-        }
-
-        cfmakeraw(&options)
-        options.c_cflag |= tcflag_t(CLOCAL | CREAD)
-        let speed = normalizeBaudRate(baudRate)
-        cfsetispeed(&options, speed)
-        cfsetospeed(&options, speed)
-
-        guard tcsetattr(fileDescriptor, TCSANOW, &options) == 0 else {
-            Darwin.close(fileDescriptor)
-            throw NSError(
-                domain: "FirmwareController",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "Could not configure serial port \(path)"]
-            )
-        }
-
-        _ = fcntl(fileDescriptor, F_SETFL, 0)
-        tcflush(fileDescriptor, TCIOFLUSH)
-        return fileDescriptor
-    }
-
-    private func normalizeBaudRate(_ rawValue: speed_t) -> speed_t {
-        switch Int(rawValue) {
-        case 9600:
-            return speed_t(B9600)
-        case 19200:
-            return speed_t(B19200)
-        case 38400:
-            return speed_t(B38400)
-        case 57600:
-            return speed_t(B57600)
-        default:
-            return speed_t(B115200)
-        }
-    }
-
-    private func readLine(from fileDescriptor: Int32, timeoutSeconds: Double) async throws -> String? {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        var buffer = Data()
+    private func waitUntilReady() async throws -> Bool {
+        let deadline = Date().addingTimeInterval(Double(readyTimeoutSeconds))
 
         while Date() < deadline {
-            var byte: UInt8 = 0
-            let count = Darwin.read(fileDescriptor, &byte, 1)
+            var request = URLRequest(url: statusURL)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 5
 
-            if count > 0 {
-                if byte == 10 || byte == 13 {
-                    if buffer.isEmpty {
-                        continue
-                    }
-
-                    return String(data: buffer, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-
-                buffer.append(byte)
-                continue
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                log("Firmware readiness response was not HTTP.")
+                return false
             }
 
-            if count == 0 || errno == EAGAIN {
-                try await Task.sleep(for: .milliseconds(100))
-                continue
+            let body = String(data: data, encoding: .utf8) ?? ""
+            log("Polling firmware readiness: HTTP \(httpResponse.statusCode) \(body)")
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                return false
             }
 
-            throw NSError(
-                domain: "FirmwareController",
-                code: 4,
-                userInfo: [NSLocalizedDescriptionKey: "Could not read firmware serial output: \(String(cString: strerror(errno)))"]
-            )
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let ready = json["ready"] as? Bool,
+               ready {
+                return true
+            }
+
+            try await Task.sleep(for: .milliseconds(500))
         }
 
-        if buffer.isEmpty {
-            return nil
-        }
-
-        return String(data: buffer, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return false
     }
 
     func isBusy() -> Bool {
@@ -905,8 +798,8 @@ actor HelperRuntime {
         self.configuration = configuration
         self.store = store
         self.firmware = FirmwareController(
-            serialPort: configuration.firmwareSerialPort,
-            baudRate: configuration.firmwareBaudRate,
+            host: configuration.firmwareHost,
+            port: configuration.firmwarePort,
             readyTimeoutSeconds: configuration.firmwareReadyTimeoutSeconds
         )
     }

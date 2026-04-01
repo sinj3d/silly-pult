@@ -261,6 +261,9 @@ export function ControlPanel() {
             <div>
               Capture: {overview.status?.captureMode ?? "best_effort_system_log"}
             </div>
+            <div>
+              Firmware target: {overview.status?.firmwareTarget ?? "http://192.168.4.1:80/"}
+            </div>
             <div>Chrome domain: {overview.status?.currentBrowserDomain ?? "none"}</div>
           </div>
         </div>
@@ -431,6 +434,7 @@ export function ControlPanel() {
             <div className="mt-2 grid gap-1">
               <div>Notification monitor: {overview.status?.notificationMonitorRunning ? "running" : "stopped"}</div>
               <div>Firmware busy: {overview.status?.firmwareBusy ? "yes" : "no"}</div>
+              <div>Firmware target: {overview.status?.firmwareTarget ?? "unknown"}</div>
               <div>Last detected: {overview.status?.lastDetectedAt ? new Date(overview.status.lastDetectedAt).toLocaleString() : "none"}</div>
             </div>
           </div>
