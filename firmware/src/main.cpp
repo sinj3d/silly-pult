@@ -59,8 +59,8 @@
 // ──────────────────────────────────────────────
 // WiFi Credentials
 // ──────────────────────────────────────────────
-const char* WIFI_SSID     = "YOUR_SSID";
-const char* WIFI_PASSWORD = "YOUR_PASSWORD";
+const char* WIFI_SSID     = "PotatoSpot";
+const char* WIFI_PASSWORD = "password";
 
 // ──────────────────────────────────────────────
 // Globals
