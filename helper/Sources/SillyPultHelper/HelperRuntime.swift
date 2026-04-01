@@ -54,7 +54,7 @@ struct Settings: Codable, Sendable {
         focusModeEnabled: false,
         workAppAllowlist: ["Slack", "Mail", "Calendar", "Messages", "Teams"],
         distractionDomainDenylist: ["instagram.com", "www.instagram.com", "coolmathgames.com", "www.coolmathgames.com"],
-        cooldownSeconds: 30,
+        cooldownSeconds: 45,
         distractionThresholdSeconds: 20
     )
 

@@ -71,7 +71,7 @@ export const defaultSettings: Settings = {
     "coolmathgames.com",
     "www.coolmathgames.com",
   ],
-  cooldownSeconds: 30,
+  cooldownSeconds: 45,
   distractionThresholdSeconds: 20,
 };
 
