@@ -26,6 +26,14 @@ Run the helper directly:
 npm run dev:helper
 ```
 
+If the ESP32 firmware is reachable on a specific host, set the helper target
+before starting it:
+
+```bash
+export SILLYPLUT_FIRMWARE_URL=http://<esp32-host>
+export SILLYPLUT_FIRMWARE_TIMEOUT_SECONDS=30
+```
+
 Helper tests:
 
 ```bash
@@ -53,4 +61,8 @@ uses for focus-mode distraction events.
 - Focus windows are opt-in and only matter when enabled.
 - Test notifications emit a macOS toast and then mirror into the same helper
   rules engine, including the focus filter when active.
+- Firmware launches are sent as `POST /launch` and completion is tracked by
+  polling `GET /status` until `ready: true`.
+- Helper stdout now emits `[FIRMWARE]` logs when commands are sent to the ESP32,
+  when responses arrive, and while readiness is being polled.
 - Local helper data is stored in `.sillyplut-data/`.

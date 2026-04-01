@@ -55,6 +55,7 @@ export type HelperStatus = {
   helperPid: number;
   captureMode: string;
   operatingMode: "all_notifications" | "focus_filtered";
+  firmwareTarget: string;
   lastError?: string | null;
 };
 

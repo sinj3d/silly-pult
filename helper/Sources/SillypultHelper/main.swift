@@ -10,16 +10,22 @@ struct HelperConfiguration {
     let port: UInt16
     let databasePath: String
     let logPredicate: String
+    let firmwareBaseURL: String
+    let firmwareReadyTimeoutSeconds: Int
 
     static func fromEnvironment() -> HelperConfiguration {
         let env = ProcessInfo.processInfo.environment
         let port = UInt16(env["SILLYPLUT_HELPER_PORT"] ?? "") ?? 42424
         let databasePath = env["SILLYPLUT_DB_PATH"] ?? "\(FileManager.default.homeDirectoryForCurrentUser.path)/Library/Application Support/SillyPlut/sillyplut.sqlite3"
+        let firmwareBaseURL = env["SILLYPLUT_FIRMWARE_URL"] ?? "http://192.168.4.1"
+        let firmwareReadyTimeoutSeconds = Int(env["SILLYPLUT_FIRMWARE_TIMEOUT_SECONDS"] ?? "") ?? 30
 
         return HelperConfiguration(
             port: port,
             databasePath: databasePath,
-            logPredicate: #"subsystem == "com.apple.usernotificationsd""#
+            logPredicate: #"subsystem == "com.apple.usernotificationsd""#,
+            firmwareBaseURL: firmwareBaseURL,
+            firmwareReadyTimeoutSeconds: firmwareReadyTimeoutSeconds
         )
     }
 }
@@ -140,6 +146,7 @@ struct HelperStatus: Codable, Sendable {
     var helperPid: Int32
     var captureMode: String
     var operatingMode: OperatingMode
+    var firmwareTarget: String
     var lastError: String?
 }
 
@@ -482,17 +489,34 @@ final class SQLiteStore: @unchecked Sendable {
 }
 
 actor FirmwareController {
+    private let launchURL: URL
+    private let statusURL: URL
+    private let readyTimeoutSeconds: Int
     private var busy = false
     private var lastActivationAt: Date?
     private var lastResult: ActionTaken?
 
+    init(baseURL: String, readyTimeoutSeconds: Int) {
+        let normalizedBaseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
+        guard let launchURL = URL(string: "\(normalizedBaseURL)/launch"),
+              let statusURL = URL(string: "\(normalizedBaseURL)/status") else {
+            fatalError("Invalid firmware base URL: \(baseURL)")
+        }
+
+        self.launchURL = launchURL
+        self.statusURL = statusURL
+        self.readyTimeoutSeconds = readyTimeoutSeconds
+    }
+
     func activate(cooldownSeconds: Int) async -> ActionTaken {
         if busy {
+            log("Skipping firmware command because a launch is already in progress.")
             lastResult = .suppressedBusy
             return .suppressedBusy
         }
 
         if let lastActivationAt, Date().timeIntervalSince(lastActivationAt) < Double(cooldownSeconds) {
+            log("Skipping firmware command because cooldown is still active.")
             lastResult = .suppressedCooldown
             return .suppressedCooldown
         }
@@ -501,11 +525,40 @@ actor FirmwareController {
         defer { busy = false }
 
         do {
-            try await Task.sleep(for: .seconds(1.5))
+            var request = URLRequest(url: launchURL)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 10
+
+            log("Sending firmware command: POST \(launchURL.absoluteString)")
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                log("Firmware launch response was not HTTP.")
+                lastResult = .failed
+                return .failed
+            }
+
+            let body = String(data: data, encoding: .utf8) ?? ""
+            log("Firmware launch response: HTTP \(httpResponse.statusCode) \(body)")
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                lastResult = .failed
+                return .failed
+            }
+
+            let ready = try await waitUntilReady()
+            guard ready else {
+                log("Firmware did not return ready before timeout.")
+                lastResult = .failed
+                return .failed
+            }
+
             lastActivationAt = Date()
             lastResult = .activated
+            log("Firmware cycle completed and device is ready.")
             return .activated
         } catch {
+            log("Firmware command failed: \(error.localizedDescription)")
             lastResult = .failed
             return .failed
         }
@@ -517,6 +570,43 @@ actor FirmwareController {
 
     func lastActivationResult() -> ActionTaken? {
         lastResult
+    }
+
+    private func waitUntilReady() async throws -> Bool {
+        let deadline = Date().addingTimeInterval(Double(readyTimeoutSeconds))
+
+        while Date() < deadline {
+            var request = URLRequest(url: statusURL)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 5
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                log("Firmware readiness response was not HTTP.")
+                return false
+            }
+
+            let body = String(data: data, encoding: .utf8) ?? ""
+            log("Polling firmware readiness: HTTP \(httpResponse.statusCode) \(body)")
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                return false
+            }
+
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let ready = json["ready"] as? Bool,
+               ready {
+                return true
+            }
+
+            try await Task.sleep(for: .milliseconds(500))
+        }
+
+        return false
+    }
+
+    private func log(_ message: String) {
+        print("[FIRMWARE] \(message)")
     }
 }
 
@@ -683,7 +773,7 @@ final class NotificationLogMonitor: @unchecked Sendable {
 actor HelperRuntime {
     private let configuration: HelperConfiguration
     private let store: SQLiteStore
-    private let firmware = FirmwareController()
+    private let firmware: FirmwareController
     private let browserTracker = BrowserTracker()
     private let startedAt = Date()
     private var lastDetectedAt: Date?
@@ -695,6 +785,10 @@ actor HelperRuntime {
     init(configuration: HelperConfiguration, store: SQLiteStore) {
         self.configuration = configuration
         self.store = store
+        self.firmware = FirmwareController(
+            baseURL: configuration.firmwareBaseURL,
+            readyTimeoutSeconds: configuration.firmwareReadyTimeoutSeconds
+        )
     }
 
     func start() async throws {
@@ -789,6 +883,7 @@ actor HelperRuntime {
             helperPid: ProcessInfo.processInfo.processIdentifier,
             captureMode: "best_effort_system_log",
             operatingMode: operatingMode,
+            firmwareTarget: configuration.firmwareBaseURL,
             lastError: lastError
         )
     }
