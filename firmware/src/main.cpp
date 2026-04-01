@@ -11,19 +11,11 @@
  *                       driven via Stepper.h through a ULN2003 board.
  *
  * Communication:
-<<<<<<< HEAD
- *   Connects to an existing WiFi network and exposes a tiny HTTP
- *   server.  The backend sends POST /launch to trigger a
- *   launch-reload cycle.
-=======
  *   Primary control path is WiFi HTTP.
  *   The backend sends POST /launch to trigger a launch-reload cycle and
  *   polls GET /status until ready becomes true again.
  *
  *   USB serial remains available for debug logs only.
- *
- * Stepper drivers assumed: A4988 / DRV8825 style (STEP + DIR pins).
->>>>>>> 65f226dfd438838dcc634cba1eb1bd40441c20bb
  */
 
 #include <Arduino.h>
@@ -48,16 +40,15 @@
 // ──────────────────────────────────────────────
 // Stepper Tuning
 // ──────────────────────────────────────────────
-// Launch motor – simple 360° CCW rotation
-// For a typical 200-step/rev (1.8°) stepper:
-#define LAUNCH_STEPS_PER_REV  250    // slightly over one revolution for extra throw
+// Launch motor – 360° CCW rotation (half-stepping: 400 steps = 360°)
+#define LAUNCH_STEPS_PER_REV  400    // half-step: 0.9° per step × 400 = 360°
 #define LAUNCH_STEP_DELAY_US  3000   // µs between steps (controls speed)
 
 // Reload motor – 28BYJ-48 with ULN2003
 // 2048 steps = 1 full output shaft revolution (with 64:1 gear ratio)
 #define RELOAD_STEPS_PER_REV  2048
-#define RELOAD_RPM            10     // speed in RPM
-#define RELOAD_STEPS          2048   // steps to advance per reload (1 full rev)
+#define RELOAD_RPM            15     // speed in RPM (max ~20 before stalling)
+#define RELOAD_STEPS          683  // steps to advance per reload (8 full revs)
 
 // Delay between launch and reload (ms)
 #define POST_LAUNCH_DELAY_MS  500
@@ -97,6 +88,23 @@ void initSteppers() {
 }
 
 /**
+ * Step the reload motor in small chunks, yielding between each
+ * chunk to prevent the ESP32 watchdog timer from resetting.
+ */
+void reloadStep(int totalSteps) {
+    const int CHUNK = 128;  // steps per chunk
+    int remaining = abs(totalSteps);
+    int dir = (totalSteps >= 0) ? 1 : -1;
+
+    while (remaining > 0) {
+        int n = min(remaining, CHUNK);
+        reloadMotor.step(n * dir);
+        remaining -= n;
+        yield();  // feed the watchdog
+    }
+}
+
+/**
  * Rotate the launch motor exactly 360° counter-clockwise.
  * Uses simple GPIO bit-banging at a constant speed.
  */
@@ -132,42 +140,9 @@ void testSteppers() {
 
     delay(500);
 
-    // --- Manual slow-step test ---
-    // Drives each coil one at a time, very slowly, so you can
-    // see the LEDs cycle AND feel the shaft try to move.
-    const int pins[] = { RELOAD_IN1, RELOAD_IN2, RELOAD_IN3, RELOAD_IN4 };
-    for (int i = 0; i < 4; i++) {
-        pinMode(pins[i], OUTPUT);
-        digitalWrite(pins[i], LOW);
-    }
-
-    // Full-step sequence: energise one coil at a time
-    // A → B → C → D → A → B → C → D  (2 full cycles, 8 steps)
-    Serial.println("[TEST] Manual full-step test (slow, 500ms per step):");
-    for (int cycle = 0; cycle < 2; cycle++) {
-        for (int step = 0; step < 4; step++) {
-            // Turn all off
-            for (int i = 0; i < 4; i++) digitalWrite(pins[i], LOW);
-            // Turn on just this coil
-            digitalWrite(pins[step], HIGH);
-            Serial.printf("  Step %d: IN%d ON\n", cycle * 4 + step, step + 1);
-            delay(500);
-        }
-    }
-    // All off
-    for (int i = 0; i < 4; i++) digitalWrite(pins[i], LOW);
-    Serial.println("[TEST] Manual test done.");
-
-    delay(500);
-
-    // Now try Stepper.h at very low speed
-    Serial.println("[TEST] Stepper.step(200) at 2 RPM...");
-    reloadMotor.setSpeed(2);
-    reloadMotor.step(200);
-    Serial.println("[TEST] Stepper test done.");
-
-    // Restore speed
-    reloadMotor.setSpeed(RELOAD_RPM);
+    Serial.printf("[TEST] Spinning reload motor %d steps at %d RPM...\n", RELOAD_STEPS, RELOAD_RPM);
+    reloadStep(RELOAD_STEPS);
+    Serial.println("[TEST] Reload motor done.");
 
     Serial.println("[TEST] === Stepper Test Complete ===");
 }
@@ -184,7 +159,7 @@ void executeLaunchCycle() {
     delay(POST_LAUNCH_DELAY_MS);
 
     Serial.println("[RELOAD] Advancing next ball...");
-    reloadMotor.step(RELOAD_STEPS);
+    reloadStep(RELOAD_STEPS);
 
     Serial.println("[RELOAD] Reload complete – ready for next launch");
 }
