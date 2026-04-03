@@ -2,7 +2,7 @@
 
 ![SillyPult Render](./demos/render.png)
 
-![SillyPult Demo Video](./demos/demo_video.mp4)
+<video src="./demos/demo_video.mp4" controls="controls" width="100%"></video>
 
 SillyPult is a local macOS MVP where the catapult is the notification channel:
 any detected macOS notification can trigger it. Focus mode is an optional
