@@ -1,5 +1,9 @@
 # SillyPult
 
+![SillyPult Render](./demos/render.png)
+
+![SillyPult Demo Video](./demos/demo_video.mp4)
+
 SillyPult is a local macOS MVP where the catapult is the notification channel:
 any detected macOS notification can trigger it. Focus mode is an optional
 toggle that switches the helper into work-only notification filtering, and
@@ -71,3 +75,8 @@ uses for focus-mode distraction events.
 - Helper stdout now emits `[FIRMWARE]` logs when commands are sent to the ESP32,
   when HTTP responses arrive, and while readiness is being polled.
 - Local helper data is stored in `~/Library/Application Support/SillyPult/`.
+
+## Contributions
+
+- **Firmware and 3D Modeling:** I wrote the C++ firmware for the ESP32 and designed the 3D models for the physical catapult.
+
